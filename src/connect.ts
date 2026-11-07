@@ -1,6 +1,6 @@
 // Connecting an application to Cauthy in one call: its client, where its
 // people come back to, where it hears events, and its own identity. It is what
-// `@cauthyhq/node init` runs, and what Cauthy's dashboard does under "Connect a
+// `cauthy init` runs, and what Cauthy's dashboard does under "Connect a
 // system".
 
 import { withoutTrailingSlashes } from './url'

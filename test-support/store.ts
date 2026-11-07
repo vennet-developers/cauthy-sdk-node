@@ -1,4 +1,4 @@
-// Copied from @cauthyhq/node 0.42 so the tests can drive the server the way a
+// Copied from cauthy-auth 0.42 so the tests can drive the server the way a
 // browser does. Not published: the browser client ships in @cauthyhq/js.
 
 // Who is signed in, kept for the browser: the same thing <CauthyProvider>

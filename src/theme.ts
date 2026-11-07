@@ -538,7 +538,7 @@ export function themeFromCss(css: string | string[], options: CssThemeOptions = 
 // ── On the application's own screens ───────────────────────────────────────
 
 /**
- * A theme as the CSS variables of `@cauthyhq/node/styles.css` (`--cauthy-*`), for
+ * A theme as the CSS variables of `@cauthyhq/react/styles.css` (stage 5) (`--cauthy-*`), for
  * the forms an application shows on its own pages. The page's own background,
  * the layout and the words are Cauthy's pages' matter, and left out.
  */
