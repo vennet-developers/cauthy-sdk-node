@@ -591,7 +591,7 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
       const res = await doFetch(`${base}${path}`, {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', accept: 'application/json', ...(locale() ? { 'x-cauthy-locale': locale() } : {}), ...(captchaToken ? { 'x-cauthy-captcha': captchaToken } : {}) },
+        headers: { 'content-type': 'application/json', accept: 'application/json', 'x-cauthy-request': '1', ...(locale() ? { 'x-cauthy-locale': locale() } : {}), ...(captchaToken ? { 'x-cauthy-captcha': captchaToken } : {}) },
         body: JSON.stringify(form),
       })
       const body = (await res.json().catch(() => null)) as any

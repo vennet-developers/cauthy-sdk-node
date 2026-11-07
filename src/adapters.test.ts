@@ -170,7 +170,7 @@ describe.each(Object.keys(frameworks))('with %s', (name) => {
     const { call, sent } = await setup()
     const res = await call('/api/auth/sign-in/email', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'http://app.test' },
+      headers: { 'x-cauthy-request': '1', 'content-type': 'application/json', origin: 'http://app.test' },
       body: JSON.stringify({ email: 'ana@acme.com', password: 'a "quoted" pässword' }),
     })
     expect(res.status).toBe(401)

@@ -316,7 +316,7 @@ describe('an application that draws its own sign-in', () => {
     // The proxy speaks https to the browser and plain http to the server.
     const inner = new Request('http://app.test/api/auth/sign-in/email', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.test', 'x-forwarded-proto': 'https' },
+      headers: { 'x-cauthy-request': '1', 'content-type': 'application/json', origin: 'https://app.test', 'x-forwarded-proto': 'https' },
       body: JSON.stringify({ email: 'ana@acme.com', password: 'nope' }),
     })
     expect((await auth.handler(inner)).status).toBe(401)
@@ -329,7 +329,7 @@ describe('an application that draws its own sign-in', () => {
     try {
       const inner = () => new Request('http://app.test/api/auth/sign-in/email', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', origin: 'https://app.test' },
+        headers: { 'x-cauthy-request': '1', 'content-type': 'application/json', origin: 'https://app.test' },
         body: JSON.stringify({ email: 'ana@acme.com', password: 'nope' }),
       })
       expect((await (await auth.handler(inner())).json()).error.code).toBe('cross_site')
@@ -663,7 +663,7 @@ describe('the address of the person signing in', () => {
     const auth = createCauthy({ issuer: 'https://cauthy.test', clientId: 'client_app', clientSecret: 'cs_x', secret: SECRET, tenant: 'acme', fetch, clientIp: over.clientIp })
     const signIn = (headers: Record<string, string> = {}) =>
       auth.handler(new Request('https://app.test/api/auth/sign-in/email', {
-        method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://app.test', ...headers },
+        method: 'POST', headers: { 'x-cauthy-request': '1', 'content-type': 'application/json', origin: 'https://app.test', ...headers },
         body: JSON.stringify({ email: 'ana@acme.com', password: 'some-password' }),
       }))
     return { asked, signIn, tokens: () => tokensAsked }

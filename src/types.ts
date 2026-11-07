@@ -26,6 +26,15 @@ export interface CauthyOptions {
   /** Where the routes are mounted. Default: `/api/auth`. */
   basePath?: string
   /**
+   * What happens to a POST without `X-Cauthy-Request: 1` (every POST but
+   * `/logout`). `required`, the default, answers `403 csrf_required`, as
+   * protocol level strict asks. `warn` lets it through and says so once per
+   * process: for the one deploy that moves an application whose browser still
+   * runs cauthy-auth 0.42, which does not send the header. Remove it once the
+   * browser runs cauthy-auth 0.43 or @cauthyhq/js.
+   */
+  requestHeader?: 'required' | 'warn'
+  /**
    * The application's own public origin (`https://app.example.com`): the
    * redirect URI, the cookies' `Secure` flag and which forms are its own come
    * from it. Default: `CAUTHY_BASE_URL`, else the origin of each request, with

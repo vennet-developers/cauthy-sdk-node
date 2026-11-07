@@ -51,5 +51,47 @@ describe('protocol version 1 at level strict', () => {
   })
 })
 
-// vi is used by the describe block Task 9 adds to this file.
-void vi
+describe('X-Cauthy-Request on every mutation', () => {
+  // A browser whose client sends no X-Cauthy-Request, as cauthy-auth 0.42's does not.
+  const bare = (a: ReturnType<typeof app>, path: string, body: unknown = { email: 'ana@acme.com', password: 'right-password' }) => {
+    const browser = new Browser('https://app.test', { requestHeader: false })
+    return a.auth.handler(browser.request(path, { method: 'POST', headers: { 'content-type': 'application/json', origin: browser.origin }, body: JSON.stringify(body) }))
+  }
+
+  it('refuses a POST without it, 403 csrf_required, before anything reaches Cauthy', async () => {
+    const a = app()
+    const res = await bare(a, '/api/auth/sign-in/email')
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('csrf_required')
+    expect(a.cauthy.calls).toEqual([])
+  })
+
+  it('refuses it on the permission check too', async () => {
+    const a = app()
+    const res = await bare(a, '/api/auth/me/organizations/check', { organizationId: '00000000-0000-4000-8000-000000000000', resource: 'deals', action: 'read' })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('csrf_required')
+  })
+
+  it('lets POST /logout through without it: a plain HTML form signs out', async () => {
+    const res = await bare(app(), '/api/auth/logout', {})
+    expect(res.status).toBe(302)
+  })
+
+  it('lets it through with requestHeader warn, and says so once', async () => {
+    const a = app({ requestHeader: 'warn' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect((await bare(a, '/api/auth/sign-in/email')).status).toBe(200)
+      expect((await bare(a, '/api/auth/sign-in/email')).status).toBe(200)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('X-Cauthy-Request')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('refuses a requestHeader it does not know', () => {
+    expect(() => app({ requestHeader: 'off' as never })).toThrow(/requestHeader/)
+  })
+})

@@ -132,11 +132,17 @@ export class FakeCauthy {
 /** A browser as far as cookies go: it keeps what it is told to and sends it back. */
 export class Browser {
   jar = new Map<string, string>()
-  constructor(readonly origin = 'https://app.test') {}
+  /** `requestHeader: false`: a browser whose client sends no X-Cauthy-Request, as cauthy-auth 0.42's does not. */
+  constructor(readonly origin = 'https://app.test', private readonly options: { requestHeader?: boolean } = {}) {}
 
   request(path: string, init: RequestInit = {}): Request {
     const headers = new Headers(init.headers)
     if (this.jar.size > 0) headers.set('cookie', [...this.jar].map(([k, v]) => `${k}=${v}`).join('; '))
+    // What a protocol-1 client sends on every mutation.
+    const method = (init.method ?? 'GET').toUpperCase()
+    if (method !== 'GET' && method !== 'HEAD' && this.options.requestHeader !== false && !headers.has('x-cauthy-request')) {
+      headers.set('x-cauthy-request', '1')
+    }
     return new Request(this.origin + path, { ...init, headers })
   }
 

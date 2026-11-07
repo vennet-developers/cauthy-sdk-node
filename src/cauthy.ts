@@ -267,6 +267,8 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   }
 
   const basePath = '/' + (given.basePath ?? '/api/auth').replace(/^\/+|\/+$/g, '')
+  const requestHeader = given.requestHeader ?? 'required'
+  if (requestHeader !== 'required' && requestHeader !== 'warn') throw new CauthyConfigError("requestHeader must be 'required' or 'warn'")
   const afterSignIn = localPath(given.afterSignIn, '/')
   const afterSignOut = localPath(given.afterSignOut, '/')
   const cookieName = given.cookieName ?? 'cauthy_session'
@@ -730,6 +732,24 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   let explained = false
 
+  let toldOfHeader = false
+  /**
+   * A mutation carries X-Cauthy-Request: 1, which another site cannot add
+   * without CORS: the answer to send instead, or null when it may go on.
+   */
+  function withoutRequestHeader(request: Request, route: string): Response | null {
+    if (request.headers.get('x-cauthy-request') === '1') return null
+    if (requestHeader === 'warn') {
+      if (!toldOfHeader) {
+        toldOfHeader = true
+        console.warn(`@cauthyhq/node: POST ${basePath}${route} arrived without X-Cauthy-Request: 1 and was let through (requestHeader: 'warn'). ` +
+          'Update the browser to cauthy-auth 0.43 or @cauthyhq/js, then remove requestHeader.')
+      }
+      return null
+    }
+    return problem(403, 'csrf_required', 'This request did not come from this application\'s own client.')
+  }
+
   /** A request this application's own page made: never another site's form. */
   function ownRequest(request: Request): boolean {
     const origin = request.headers.get('origin')
@@ -905,6 +925,10 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       route.startsWith('/sign-in/social/') || route.startsWith('/callback/') || route.startsWith('/me/identities/link/') || route.startsWith('/me/upgrade/social/') ||
       route === '/sign-in/sso' || route === '/sign-in/sso/discover' || route === '/sso/callback'
     if (!own) return null
+    if (post) {
+      const refused = withoutRequestHeader(request, route)
+      if (refused) return refused
+    }
     if (tenant === '') {
       return problem(500, 'not_configured', '@cauthyhq/node: tenant (CAUTHY_TENANT) is required for the application\'s own sign-in screens')
     }
@@ -1713,6 +1737,8 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   async function checkRoute(request: Request): Promise<Response> {
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: { allow: 'POST' } })
+    const refused = withoutRequestHeader(request, '/me/organizations/check')
+    if (refused) return refused
     if (!ownRequest(request)) return problem(403, 'cross_site', 'This request did not come from this application.')
     const b = await body(request)
     if (b === null) return problem(400, 'bad_request', 'Send the question as JSON.')
