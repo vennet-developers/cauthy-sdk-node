@@ -79,7 +79,7 @@ import { postgresKeyStore } from '@cauthyhq/node/keys'
 export const auth = createCauthy({ contract: { graph, system: 'acme-crm' }, keys: postgresKeyStore(query) })
 ```
 
-It refuses to start when any `CAUTHY_*` variable is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session (`email_not_verified`). See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
+It refuses to start when any `CAUTHY_*` variable is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session (`email_not_confirmed`). See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
 
 ## Options added in 1.0
 

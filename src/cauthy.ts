@@ -328,7 +328,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // `proof`: the system's own headers (passedOn), sent on a code exchange — a
   // contract may ask for them (require_system_proof), so a copied client id
   // is no use on its own.
-  async function token(form: Record<string, string>, proof: Record<string, string> = {}): Promise<{ ok: true; body: any } | { ok: false; ended: boolean }> {
+  async function token(form: Record<string, string>, proof: Record<string, string> = {}): Promise<{ ok: true; body: any } | { ok: false; ended: boolean; code?: string }> {
     const body = new URLSearchParams({ client_id: clientId, ...form })
     if (clientSecret) body.set('client_secret', clientSecret)
     try {
@@ -340,7 +340,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       if (res.ok) return { ok: true, body: await res.json() }
       // 4xx is Cauthy's answer: the grant is no good. Anything else is a
       // failure to ask, and says nothing about the session.
-      return { ok: false, ended: res.status >= 400 && res.status < 500 }
+      // Cauthy names why, as an OAuth error (RFC 6749 §5.2) with an extension code.
+      const why = (await res.json().catch(() => null)) as { error?: unknown } | null
+      return { ok: false, ended: res.status >= 400 && res.status < 500, ...(typeof why?.error === 'string' ? { code: why.error } : {}) }
     } catch {
       return { ok: false, ended: false }
     }
@@ -396,7 +398,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     if (unverified(who.u)) {
       // Cauthy just issued these tokens: the session they would have started never begins.
       await revoke(body.refresh_token)
-      throw new CauthyApiError(403, 'email_not_verified', 'Confirm your email address first.')
+      throw new CauthyApiError(403, 'email_not_confirmed', 'Confirm your email address first.')
     }
     const lifetime = typeof body.expires_in === 'number' && body.expires_in > 0 ? body.expires_in : 300
     return { at: body.access_token, rt: body.refresh_token, exp: Math.floor(Date.now() / 1000) + lifetime, ...who, ...kindOf(body, was) }
@@ -439,7 +441,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
         try {
           next = await stored(res.body, was)
         } catch (err) {
-          if (err instanceof CauthyApiError && err.code === 'email_not_verified') return 'ended'
+          if (err instanceof CauthyApiError && err.code === 'email_not_confirmed') return 'ended'
           throw err
         }
         if (next !== null) return next
@@ -676,15 +678,21 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       redirect_uri: `${originOf(request)}${basePath}/callback`,
       code_verifier: flow.verifier,
     }, await passedOn(request))
+    // Back to the application's sign-in page with the reason, and the question forgotten.
+    const unconfirmed = () => {
+      const page = pages.signIn ?? '/'
+      return redirect(`${page}${page.includes('?') ? '&' : '?'}auth_error=email_not_confirmed`,
+        [writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
+    }
+    // Cauthy refuses at the token endpoint when the client requires a confirmed address…
+    if (!res.ok && res.code === 'email_not_confirmed') return unconfirmed()
     let s: Stored | null
     try {
       s = res.ok ? await stored(res.body) : null
     } catch (err) {
-      if (!(err instanceof CauthyApiError && err.code === 'email_not_verified')) throw err
-      // Back to the application's sign-in page with the reason, and the question forgotten.
-      const page = pages.signIn ?? '/'
-      return redirect(`${page}${page.includes('?') ? '&' : '?'}auth_error=email_not_verified`,
-        [writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
+      // …and this side checks too, should an older Cauthy not.
+      if (!(err instanceof CauthyApiError && err.code === 'email_not_confirmed')) throw err
+      return unconfirmed()
     }
     if (s === null) return failed(request, 'exchange_failed')
     return redirect(flow.returnTo, [...(await write(request, s, had)), writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
@@ -1751,11 +1759,11 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       return finish(await serve(request), route, published)
     } catch (err) {
       // A sign-in that Cauthy completed for an address not yet confirmed, on a link that requires it.
-      if (!(err instanceof CauthyApiError && err.code === 'email_not_verified')) throw err
+      if (!(err instanceof CauthyApiError && err.code === 'email_not_confirmed')) throw err
       const wantsPage = request.method === 'GET' && (request.headers.get('sec-fetch-mode') ?? 'navigate') === 'navigate'
       return finish(wantsPage
-        ? new Response('Sign-in refused (email_not_verified). Confirm your email address first.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } })
-        : problem(403, 'email_not_verified', 'Confirm your email address first.'), route)
+        ? new Response('Sign-in refused (email_not_confirmed). Confirm your email address first.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+        : problem(403, 'email_not_confirmed', 'Confirm your email address first.'), route)
     }
   }
 
