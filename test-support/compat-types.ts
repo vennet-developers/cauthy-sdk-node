@@ -154,7 +154,9 @@ export const options = (o: TheirOptions): OurOptions => o
 export const system = (o: TheirSystem): OurSystem => o
 export const contract = (o: TheirContract): OurContract => o
 export const mcp = (o: TheirMcp): OurMcp => o
-export const fastify = (o: TheirFastify): OurFastify => o
+// `auth` is left out: a 0.42 Cauthy is never mixed with our plugin (both come
+// from the same import), and our ResolvedContract has two fields 0.42's lacks.
+export const fastify = (o: Omit<TheirFastify, 'auth'>): Omit<OurFastify, 'auth'> => o
 export const verify = (o: TheirVerify): OurVerify => o
 export const connect = (o: TheirConnect): OurConnect => o
 export const push = (o: TheirPush): OurPush => o

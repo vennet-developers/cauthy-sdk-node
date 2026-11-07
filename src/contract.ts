@@ -36,8 +36,12 @@ export interface ResolvedContract {
   clientId: string
   /** Where people may return after signing in. */
   redirectUris: string[]
-  /** Whether Cauthy asks the system's proof on the code exchange. */
+  /** Whether Cauthy asks the system's proof on the code exchange now (`systemProof` is `required`). */
   requireSystemProof: boolean
+  /** How the link asks for the proof: never, from the first proved sign-in on (`auto`), or always. */
+  systemProof: 'off' | 'auto' | 'required'
+  /** Whether Cauthy issues no token through this link before the address is confirmed. */
+  requireVerifiedEmail: boolean
   /** Whether the link lets its people ask to stay signed in. */
   persistentSessions: boolean
   /** The system's own client, when the link gives it one: `pact.<link>.service`. */
@@ -69,6 +73,8 @@ export function failClosed(environment: Record<string, string | undefined> | und
 }
 
 const SLUG = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 
 interface GraphNode {
   id?: unknown
@@ -84,8 +90,8 @@ interface GraphEdge {
   relation?: unknown
   to?: unknown
   link?: unknown
-  identity?: { tenant?: unknown; subject?: unknown }
-  sign_in?: { client_id?: unknown; redirect_uris?: unknown; require_system_proof?: unknown; persistent_sessions?: unknown } | null
+  identity?: { tenant?: unknown; subject?: unknown; tenant_id?: unknown; create_tenant?: unknown }
+  sign_in?: { client_id?: unknown; redirect_uris?: unknown; require_system_proof?: unknown; system_proof?: unknown; require_verified_email?: unknown; persistent_sessions?: unknown } | null
   service?: { client_id?: unknown; system?: unknown; jwks_url?: unknown } | null
 }
 
@@ -134,18 +140,48 @@ export function readContract(options: ContractOptions): ResolvedContract {
   }
   const e = links[0]
   const link = text(e.link)
-  const tenantId = text(e.identity?.tenant)
-  const tenant = text((cauthy.tenants ?? []).find(t => t.id === tenantId)?.slug)
-  if (tenant === '') throw new CauthyConfigError(`the graph does not name the slug of the workspace ${tenantId || '(none)'} that the link ${link} uses`)
+  // The link names its workspace by id (the graph lists its slug) or by slug
+  // (the graph pins its id as tenant_id). A slug with no tenant_id is a
+  // workspace Cauthy has not created yet, or a graph pulled before it was.
+  const named = text(e.identity?.tenant)
+  const pinned = text(e.identity?.tenant_id)
+  if (named === NIL_UUID || pinned === NIL_UUID) throw new CauthyConfigError(`the link ${link} names the nil UUID as its workspace: name the workspace by its slug`)
+  let tenantId: string
+  let tenant: string
+  if (UUID.test(named)) {
+    tenantId = named
+    tenant = text((cauthy.tenants ?? []).find(t => t.id === named)?.slug)
+    if (tenant === '') throw new CauthyConfigError(`the graph does not name the slug of the workspace ${named} that the link ${link} uses`)
+  } else {
+    if (!SLUG.test(named)) throw new CauthyConfigError(`the link ${link} names no workspace: identity.tenant is a UUID or a slug`)
+    if (!UUID.test(pinned)) {
+      throw new CauthyConfigError(e.identity?.create_tenant === true
+        ? `the link ${link} asks Cauthy for a new workspace "${named}", and the graph has no tenant_id for it yet: once Cauthy has created it and core-contracts lists it, pull the graph again`
+        : `the link ${link} names the workspace "${named}" by its slug, and the graph carries no tenant_id for it: pull the graph again`)
+    }
+    tenantId = pinned
+    tenant = named
+  }
   const issuer = withoutTrailingSlashes(httpsAddress(text(cauthy.url), `address of ${provider}`).href)
   const signIn = e.sign_in ?? {}
   const clientId = text(signIn.client_id) || `pact.${link}`
   const redirectUris = Array.isArray(signIn.redirect_uris) ? signIn.redirect_uris.map(text).filter(Boolean) : []
   if (redirectUris.length === 0) throw new CauthyConfigError(`the link ${link} names no redirect URI`)
 
+  // system_proof says the whole of it; a graph from before it has only the boolean.
+  const proof = text(signIn.system_proof)
+  const systemProof: ResolvedContract['systemProof'] = proof === 'off' || proof === 'auto' || proof === 'required'
+    ? proof
+    : signIn.require_system_proof === true ? 'required' : 'off'
+  if (systemProof !== 'off' && !e.service) {
+    throw new CauthyConfigError(`the link ${link} asks for the system's proof (${systemProof}) and gives ${system} no identity to make it with: it needs a service block`)
+  }
+
   const out: ResolvedContract = {
     system, link, issuer, tenantId, tenant, clientId, redirectUris,
-    requireSystemProof: signIn.require_system_proof === true,
+    requireSystemProof: systemProof === 'required',
+    systemProof,
+    requireVerifiedEmail: signIn.require_verified_email === true,
     persistentSessions: signIn.persistent_sessions === true,
   }
   if (e.service) {

@@ -50,6 +50,7 @@ describe('reading the contract', () => {
     expect(readContract(contract)).toEqual({
       system: 'acme-crm', link: 'acme-crm-signs-in-with-cauthy', issuer: 'https://id.test', tenantId: TENANT, tenant: 'acme',
       clientId: 'pact.acme-crm-signs-in-with-cauthy', redirectUris: ['https://app.test/api/auth/callback'], requireSystemProof: false, persistentSessions: false,
+      systemProof: 'off', requireVerifiedEmail: false,
       serviceClientId: 'pact.acme-crm-signs-in-with-cauthy.service',
       jwksUrl: 'https://app.test/.well-known/pact-jwks.json', jwksPath: '/.well-known/pact-jwks.json',
       eventsUrl: 'https://app.test/api/cauthy/events',
@@ -303,5 +304,44 @@ describe('deliveries taken once', () => {
     expect(await replay.claim('d1:160', until)).toBe(true)
     t += 301_000
     expect(await replay.claim('d1:100', new Date(t + 300_000))).toBe(true)
+  })
+})
+
+describe('the link fields core-contracts added in November 2026', () => {
+  const bySlug = (identity: Record<string, unknown>) => {
+    const g = graph()
+    g.edges[0].identity = { issuer: 'cauthy', tenant: 'acme', subject: SUBJECT, tenant_id: TENANT, ...identity } as (typeof g)['edges'][number]['identity']
+    return { graph: g, system: 'acme-crm' }
+  }
+
+  it('reads a workspace named by its slug and pinned by tenant_id', () => {
+    expect(readContract(bySlug({}))).toMatchObject({ tenant: 'acme', tenantId: TENANT })
+  })
+
+  it('refuses a slug the graph has not pinned yet, and says what to do', () => {
+    expect(() => readContract(bySlug({ tenant_id: undefined, create_tenant: true }))).toThrow(/new workspace "acme".*pull the graph again/)
+    expect(() => readContract(bySlug({ tenant_id: undefined }))).toThrow(/carries no tenant_id/)
+  })
+
+  it('refuses the nil UUID', () => {
+    expect(() => readContract(bySlug({ tenant: '00000000-0000-0000-0000-000000000000', tenant_id: undefined }))).toThrow(/nil UUID/)
+  })
+
+  it('reads system_proof and require_verified_email', () => {
+    const g = graph()
+    Object.assign(g.edges[0].sign_in, { require_system_proof: false, system_proof: 'auto', require_verified_email: true })
+    expect(readContract({ graph: g, system: 'acme-crm' })).toMatchObject({ systemProof: 'auto', requireSystemProof: false, requireVerifiedEmail: true })
+  })
+
+  it('derives system_proof from the boolean in a graph from before it', () => {
+    const g = graph()
+    Object.assign(g.edges[0].sign_in, { require_system_proof: true })
+    expect(readContract({ graph: g, system: 'acme-crm' })).toMatchObject({ systemProof: 'required', requireSystemProof: true })
+  })
+
+  it('refuses a proof the link gives no identity to make', () => {
+    const g = graph({ service: false })
+    Object.assign(g.edges[0].sign_in, { system_proof: 'auto' })
+    expect(() => readContract({ graph: g, system: 'acme-crm' })).toThrow(/needs a service block/)
   })
 })
