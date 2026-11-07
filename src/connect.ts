@@ -4,6 +4,7 @@
 // system".
 
 import { withoutTrailingSlashes } from './url'
+import { deadline, DEFAULT_DEADLINE_MS } from './deadline'
 import { deprecated } from './deprecate'
 
 export interface ConnectOptions {
@@ -28,6 +29,8 @@ export interface ConnectOptions {
   /** A personal access token with `systems:connect`. Default: `CAUTHY_TOKEN`. */
   token?: string
   fetch?: typeof fetch
+  /** How long the call may take, in milliseconds, before it fails with a `TimeoutError`. Default: 5000. */
+  timeoutMs?: number
 }
 
 export interface Connected {
@@ -66,7 +69,7 @@ export async function connectSystem(o: ConnectOptions): Promise<Connected> {
   for (const [name, v] of Object.entries({ CAUTHY_ISSUER: issuer, CAUTHY_TENANT: tenant, CAUTHY_TOKEN: token })) {
     if (v === '') throw new Error(`@cauthyhq/node: ${name} is required to connect a system`)
   }
-  const res = await (o.fetch ?? fetch)(`${issuer}/v1/connect`, {
+  const res = await deadline(o.fetch, o.timeoutMs ?? DEFAULT_DEADLINE_MS)(`${issuer}/v1/connect`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'x-tenant-key': tenant, 'content-type': 'application/json' },
     body: JSON.stringify({ system: o.system, app_url: o.appUrl, name: o.name, callback_path: o.callbackPath,

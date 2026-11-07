@@ -6,5 +6,11 @@ const told = new Set<string>()
 export function deprecated(what: string, instead: string): void {
   if (told.has(what)) return
   told.add(what)
-  process.emitWarning(`@cauthyhq/node: ${what} is deprecated and leaves in 2.0. ${instead}`, { type: 'DeprecationWarning', code: 'CAUTHY_DEPRECATED' })
+  const message = `@cauthyhq/node: ${what} is deprecated and leaves in 2.0. ${instead}`
+  // Edge runtimes have no `process`: the console says it there.
+  if (typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
+    process.emitWarning(message, { type: 'DeprecationWarning', code: 'CAUTHY_DEPRECATED' })
+  } else {
+    console.warn(message)
+  }
 }

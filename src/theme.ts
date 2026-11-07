@@ -8,6 +8,7 @@
 // An application built with Stackmyth already has those values, as its
 // `--sm-*` tokens. `themeFromStackmyth` reads them out of its stylesheets.
 
+import { deadline, DEFAULT_DEADLINE_MS } from './deadline'
 import { withoutTrailingSlashes } from './url'
 
 /** How an application looks on Cauthy's hosted pages. Every value is optional. */
@@ -614,6 +615,8 @@ export interface PushThemeOptions {
   token?: string
   theme: CauthyTheme
   fetch?: typeof fetch
+  /** How long the call may take, in milliseconds, before it fails with a `TimeoutError`. Default: 5000. */
+  timeoutMs?: number
 }
 
 /**
@@ -630,7 +633,7 @@ export async function pushTheme(o: PushThemeOptions): Promise<void> {
   for (const [name, v] of Object.entries({ CAUTHY_ISSUER: issuer, CAUTHY_CLIENT_ID: clientId, CAUTHY_TENANT: tenant, CAUTHY_TOKEN: token })) {
     if (v === '') throw new Error(`@cauthyhq/node: ${name} is required to push a theme`)
   }
-  const res = await (o.fetch ?? fetch)(`${issuer}/v1/oauth/clients/${encodeURIComponent(clientId)}/theme`, {
+  const res = await deadline(o.fetch, o.timeoutMs ?? DEFAULT_DEADLINE_MS)(`${issuer}/v1/oauth/clients/${encodeURIComponent(clientId)}/theme`, {
     method: 'PUT',
     headers: { authorization: `Bearer ${token}`, 'x-tenant-key': tenant, 'content-type': 'application/json' },
     body: JSON.stringify(toWire(o.theme)),

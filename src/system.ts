@@ -8,6 +8,7 @@
 // shared with Cauthy.
 
 import { exportJWK, importJWK, importPKCS8, SignJWT, type JWK, type KeyLike } from 'jose'
+import { deadline, isTimeout } from './deadline'
 import { checkResultOf, checkWire, type CatalogResource, type PolicyRole } from './permissions'
 import { fromWire, type CauthyTheme } from './theme'
 import { CauthyConfigError, type CheckQuestion, type CheckResult, type JsonValue } from './types'
@@ -218,12 +219,13 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new CauthyConfigError('timeoutMs must be a positive number of milliseconds')
   // Every call has a deadline: a Cauthy that does not answer must not hold a
   // sign-in (the proof it carries) or a job of the application forever.
-  const doFetch: typeof fetch = async (input, init = {}) => {
+  const limited = deadline(given.fetch, timeoutMs)
+  const doFetch: typeof fetch = async (input, init) => {
     try {
-      return await (given.fetch ?? fetch)(input, { ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs) })
+      return await limited(input, init)
     } catch (err) {
-      const name = (err as { name?: unknown } | null)?.name
-      if (name === 'TimeoutError' || name === 'AbortError') throw new CauthyApiError(503, 'unavailable', `Cauthy did not answer within ${timeoutMs} ms`)
+      // Only the deadline is Cauthy's failure to answer; a caller giving up is the caller's.
+      if (isTimeout(err)) throw new CauthyApiError(503, 'unavailable', `Cauthy did not answer within ${timeoutMs} ms`)
       throw err
     }
   }

@@ -6,6 +6,7 @@
 // call to Cauthy, on the server or in the browser.
 
 import type { CheckQuestion, CheckResult, CheckRule, ConditionalPermission, OrganizationRef } from './types'
+import { deadline, DEFAULT_DEADLINE_MS } from './deadline'
 import { withoutTrailingSlashes } from './url'
 
 /** The part of an organization that says what its member may do. */
@@ -370,7 +371,7 @@ function reach(o: Omit<PushPolicyOptions, 'roles'>, doing: string): Reach {
   for (const [name, v] of Object.entries({ CAUTHY_ISSUER: r.issuer, CAUTHY_SYSTEM: r.system, CAUTHY_TENANT: r.tenant, CAUTHY_TOKEN: r.token })) {
     if (v === '') throw new Error(`@cauthyhq/node: ${name} is required to ${doing}`)
   }
-  return { ...r, fetch: o.fetch ?? fetch }
+  return { ...r, fetch: deadline(o.fetch, o.timeoutMs ?? DEFAULT_DEADLINE_MS) }
 }
 
 async function systemCall(r: Reach, method: 'GET' | 'PUT', what: 'policy' | 'catalog', body?: unknown): Promise<any> {
@@ -422,6 +423,8 @@ export interface PushPolicyOptions {
    */
   token?: string
   fetch?: typeof fetch
+  /** How long the call may take, in milliseconds, before it fails with a `TimeoutError`. Default: 5000. */
+  timeoutMs?: number
 }
 
 /**

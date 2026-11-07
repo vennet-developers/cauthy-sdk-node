@@ -36,6 +36,7 @@ import {
 } from './types'
 import { withoutTrailingSlashes } from './url'
 import { finish } from './protocol'
+import { deadline } from './deadline'
 import { deprecated } from './deprecate'
 import { checkMount as probeMount, type MountTarget } from './mount'
 
@@ -294,10 +295,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   for (const [name, ms] of [['system', systemTimeout], ['request', requestTimeout]] as const) {
     if (!Number.isFinite(ms) || ms <= 0) throw new CauthyConfigError(`timeouts.${name} must be a positive number of milliseconds`)
   }
-  // Every call to Cauthy has a deadline (a call that brings its own signal, like
-  // the event stream that ends with the page, keeps that one).
-  const doFetch: typeof fetch = (input, init = {}) =>
-    (given.fetch ?? fetch)(input, { ...init, signal: init.signal ?? AbortSignal.timeout(requestTimeout) })
+  // Every call to Cauthy has a deadline; for the event stream it covers the
+  // first response only, and the page that goes away ends the rest.
+  const doFetch = deadline(given.fetch, requestTimeout)
   const iconOf = iconFor(issuer)
   const pages = {
     signIn: given.pages?.signIn ? localPath(given.pages.signIn, '/') : undefined,
