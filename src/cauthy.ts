@@ -36,6 +36,7 @@ import {
 } from './types'
 import { withoutTrailingSlashes } from './url'
 import { finish } from './protocol'
+import { deprecated } from './deprecate'
 
 /** What the session cookie holds. Short names: it rides every request. */
 interface Stored {
@@ -929,6 +930,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       const refused = withoutRequestHeader(request, route)
       if (refused) return refused
     }
+    // Guest sessions and their upgrade leave the protocol in version 2.
+    if (route === '/sign-in/anonymous' || route === '/me/upgrade') deprecated(`POST ${route}`, 'Guest sessions leave the auth-bff protocol in version 2.')
+    if (route.startsWith('/me/upgrade/social/')) deprecated('GET /me/upgrade/social/{provider}', 'Guest sessions leave the auth-bff protocol in version 2.')
     if (tenant === '') {
       return problem(500, 'not_configured', '@cauthyhq/node: tenant (CAUTHY_TENANT) is required for the application\'s own sign-in screens')
     }

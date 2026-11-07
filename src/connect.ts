@@ -4,6 +4,7 @@
 // system".
 
 import { withoutTrailingSlashes } from './url'
+import { deprecated } from './deprecate'
 
 export interface ConnectOptions {
   /** The system's name, as its organizations are filed under: lowercase, digits, - or _. */
@@ -55,7 +56,9 @@ function sessionSecret(): string {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/** @deprecated Connect a system with the cauthy CLI (`npx cauthy init`); leaves in 2.0. */
 export async function connectSystem(o: ConnectOptions): Promise<Connected> {
+  deprecated('connectSystem', 'Connect a system with the cauthy CLI: npx cauthy init.')
   const env = (n: string) => (typeof process !== 'undefined' ? process.env?.[n] : undefined)
   const issuer = withoutTrailingSlashes(o.issuer ?? env('CAUTHY_ISSUER') ?? '')
   const tenant = o.tenant ?? env('CAUTHY_TENANT') ?? ''
