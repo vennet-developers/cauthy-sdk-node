@@ -37,6 +37,7 @@ import {
 import { withoutTrailingSlashes } from './url'
 import { finish } from './protocol'
 import { deprecated } from './deprecate'
+import { checkMount as probeMount, type MountTarget } from './mount'
 
 /** What the session cookie holds. Short names: it rides every request. */
 interface Stored {
@@ -93,6 +94,15 @@ export interface Resolved {
 export interface Cauthy {
   /** Serves the routes under `basePath`: login, callback, session, refresh, logout, account. */
   handler(request: Request): Promise<Response>
+  /**
+   * Checks that this handler is what answers under `basePath` in the running
+   * application, and throws `CauthyConfigError` naming the route when another
+   * one does. Call it once at startup: with the origin after the server
+   * listens (`'http://localhost:3000'`), or with a function that serves a
+   * request in process (Hono's `app.fetch`; `checkFastifyMount` for
+   * Fastify). Nothing it sends reaches Cauthy.
+   */
+  checkMount(target: MountTarget): Promise<void>
   /**
    * Who is signed in, or null.
    *
@@ -1842,6 +1852,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   return {
     handler,
+    checkMount: (target: MountTarget) => probeMount(basePath, target),
     webhook,
     system: systemThatRefreshes,
     getSession,

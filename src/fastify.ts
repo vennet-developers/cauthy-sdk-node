@@ -13,6 +13,8 @@
 // Here a session that needs renewing is renewed on the spot: Fastify has the
 // reply in hand, so the new cookie always goes back.
 
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import type { Cauthy } from './cauthy'
 import type { Session } from './types'
@@ -30,6 +32,12 @@ declare module 'fastify' {
 
 export interface CauthyFastifyOptions {
   auth: Cauthy
+  /**
+   * Check, when Fastify is ready, that this plugin is what answers under
+   * basePath (`checkFastifyMount`), and fail startup when another route
+   * does. Default: true.
+   */
+  checkMount?: boolean
 }
 
 function originOf(req: FastifyRequest): string {
@@ -55,7 +63,7 @@ function toWebRequest(req: FastifyRequest): Request {
 const kSession = Symbol('cauthy.session')
 const kReply = Symbol('cauthy.reply')
 
-const plugin: FastifyPluginAsync<CauthyFastifyOptions> = async (app: FastifyInstance, { auth }) => {
+const plugin: FastifyPluginAsync<CauthyFastifyOptions> = async (app: FastifyInstance, { auth, checkMount = true }) => {
   const base = auth.options.basePath
 
   app.decorateRequest('cauthy', async function (this: FastifyRequest): Promise<Session | null> {
@@ -92,6 +100,38 @@ const plugin: FastifyPluginAsync<CauthyFastifyOptions> = async (app: FastifyInst
     return reply.send(res.body === null ? null : Buffer.from(await res.arrayBuffer()))
   }
   app.route({ method: ['GET', 'POST'], url: `${base}/*`, handler: serve })
+  if (checkMount) app.addHook('onReady', () => probe(app, auth))
+}
+
+/**
+ * Sends the probes of checkMount through Fastify's own router, over a private
+ * loopback socket that only lives for the check. Not `app.inject`: inside
+ * `onReady` it would wait for the very ready it runs in.
+ */
+async function probe(app: FastifyInstance, auth: Cauthy): Promise<void> {
+  const server = createServer((req, res) => app.routing(req, res))
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  try {
+    await auth.checkMount(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+}
+
+/**
+ * Checks that the plugin is what answers under basePath, in process, once
+ * Fastify is ready (the plugin already does it by itself at `onReady`; this
+ * is for tests and for `checkMount: false`):
+ *
+ *   await app.ready()
+ *   await checkFastifyMount(app, auth)
+ */
+export function checkFastifyMount(app: FastifyInstance, auth: Cauthy): Promise<void> {
+  return probe(app, auth)
 }
 
 
