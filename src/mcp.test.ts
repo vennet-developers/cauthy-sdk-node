@@ -102,6 +102,18 @@ describe('an MCP server protected with Cauthy', () => {
     expect(calls).toBe(3)
   })
 
+  it('does not wait forever for a Cauthy that does not answer', async () => {
+    const hanging = ((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason)))) as unknown as typeof fetch
+    const auth = mcpAuth({ resource, issuer, jwks, fetch: hanging, timeoutMs: 50, introspect: true, clientId: 'rsc_1', clientSecret: 'rss_s' })
+    const who = await auth.verify(bearer(await sign(agent)).clone()).catch((e) => e)
+    expect(who).toBeInstanceOf(McpAuthError)
+    const plain = mcpAuth({ resource, issuer, jwks, fetch: hanging, timeoutMs: 50, clientId: 'rsc_1', clientSecret: 'rss_s' })
+    const verified = await plain.verify(bearer(await sign(agent)))
+    await expect(plain.exchange(verified, 'https://api.example.com')).rejects.toMatchObject({ status: 503, code: 'temporarily_unavailable' })
+    expect(() => mcpAuth({ resource, issuer, jwks, timeoutMs: 0 })).toThrow(/timeoutMs/)
+  })
+
   it('trades the agent\'s token for one for another of the workspace\'s servers (RFC 8693)', async () => {
     const seen: { url: string; auth: string; body: URLSearchParams }[] = []
     let answer: () => Response = () => Response.json({ access_token: 'xt-1', token_type: 'Bearer', expires_in: 300, scope: 'orders:read', issued_token_type: 'urn:ietf:params:oauth:token-type:access_token' })

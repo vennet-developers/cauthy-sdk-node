@@ -79,6 +79,14 @@ export interface CauthyOptions {
   /** `fetch` to reach Cauthy with. Default: the global one. */
   fetch?: typeof fetch
   /**
+   * How long a call to Cauthy may take before it fails, in milliseconds.
+   * `system`: the application's own calls (`auth.system`, and the proof its
+   * sign-ins carry). Default 2000. `request`: the sign-in screens' calls and
+   * the code, refresh and userinfo calls of a session. Default 5000. The
+   * push-approval event stream has no deadline.
+   */
+  timeouts?: { system?: number; request?: number }
+  /**
    * Run by contract: the issuer, the workspace, the clients and where the
    * application's keys are published all come from its link in the network's
    * context graph, and none of the CAUTHY_* variables may be set. See

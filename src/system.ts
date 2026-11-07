@@ -61,6 +61,8 @@ export interface SystemOptions {
   /** The client the keys prove: the system's own, beside the sign-in client. */
   keysClientId?: string
   fetch?: typeof fetch
+  /** How long a call to Cauthy may take before it fails with `503 unavailable`, in milliseconds. Default: 2000. */
+  timeoutMs?: number
 }
 
 /** Cauthy refused a request of the application's own. */
@@ -212,7 +214,19 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
   const inviteHeaders: Record<string, string> = /^https?:\/\//.test(acceptInviteUrl)
     ? { 'x-cauthy-client-id': clientId, 'x-cauthy-link-to': acceptInviteUrl }
     : {}
-  const doFetch: typeof fetch = (...args) => (given.fetch ?? fetch)(...args)
+  const timeoutMs = given.timeoutMs ?? 2000
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new CauthyConfigError('timeoutMs must be a positive number of milliseconds')
+  // Every call has a deadline: a Cauthy that does not answer must not hold a
+  // sign-in (the proof it carries) or a job of the application forever.
+  const doFetch: typeof fetch = async (input, init = {}) => {
+    try {
+      return await (given.fetch ?? fetch)(input, { ...init, signal: init.signal ?? AbortSignal.timeout(timeoutMs) })
+    } catch (err) {
+      const name = (err as { name?: unknown } | null)?.name
+      if (name === 'TimeoutError' || name === 'AbortError') throw new CauthyApiError(503, 'unavailable', `Cauthy did not answer within ${timeoutMs} ms`)
+      throw err
+    }
+  }
   const tokenEndpoint = `${issuer}/v1/oauth/token`
 
   // Checked when it is first used, not when it is made: an application that

@@ -253,3 +253,50 @@ describe('the system\'s own catalog and checks', () => {
     expect(state.calls[0].path).toBe('/v1/systems/ledger/check')
   })
 })
+
+describe('a Cauthy that does not answer', () => {
+  // A fetch that answers only when it is aborted.
+  const hanging: typeof fetch = (_input, init) =>
+    new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+
+  it('fails the call after the deadline, as 503 unavailable', async () => {
+    const system = createSystem({ issuer: 'https://id.test', clientId: 'acme-crm', clientSecret: 'cs_x', fetch: hanging, timeoutMs: 50 })
+    const started = Date.now()
+    await expect(system.token()).rejects.toMatchObject({ status: 503, code: 'unavailable' })
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('gives every call a deadline by default', async () => {
+    let signal: AbortSignal | null | undefined
+    const seen: typeof fetch = async (_input, init) => {
+      signal = init?.signal
+      return new Response(JSON.stringify({ access_token: 't', expires_in: 600 }), { status: 200 })
+    }
+    await createSystem({ issuer: 'https://id.test', clientId: 'acme-crm', clientSecret: 'cs_x', fetch: seen }).token()
+    expect(signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('takes the system deadline from createCauthy timeouts', async () => {
+    const auth = createCauthy({ issuer: 'https://id.test', clientId: 'acme-crm', clientSecret: 'cs_x', secret: 'a-secret-of-at-least-thirty-two-characters', fetch: hanging, timeouts: { system: 50 } })
+    await expect(auth.system.token()).rejects.toBeInstanceOf(CauthyApiError)
+  })
+
+  it('gives the own screens\' calls their own deadline, and answers 503 when it passes', async () => {
+    const auth = createCauthy({ issuer: 'https://id.test', clientId: 'acme-crm', secret: 'a-secret-of-at-least-thirty-two-characters', tenant: 'acme', fetch: hanging, timeouts: { request: 50 } })
+    const started = Date.now()
+    const res = await auth.handler(new Request('https://app.test/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://app.test', 'x-cauthy-request': '1' },
+      body: JSON.stringify({ email: 'ana@acme.com', password: 'right-password' }),
+    }))
+    expect(res.status).toBe(503)
+    expect((await res.json()).error.code).toBe('unavailable')
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('refuses a deadline that is not a positive number', () => {
+    expect(() => createSystem({ timeoutMs: 0 })).toThrow(/timeoutMs/)
+    expect(() => createCauthy({ issuer: 'https://id.test', clientId: 'acme-crm', secret: 'a-secret-of-at-least-thirty-two-characters', timeouts: { request: -1 } })).toThrow(/timeouts.request/)
+    expect(() => createCauthy({ issuer: 'https://id.test', clientId: 'acme-crm', secret: 'a-secret-of-at-least-thirty-two-characters', timeouts: { system: 0 } })).toThrow(/timeouts.system/)
+  })
+})

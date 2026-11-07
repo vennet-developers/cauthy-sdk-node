@@ -276,7 +276,15 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   const flowCookie = `${cookieName}_flow`
   const againCookie = `${cookieName}_again`
   const stepCookie = `${cookieName}_step`
-  const doFetch: typeof fetch = (...args) => (given.fetch ?? fetch)(...args)
+  const systemTimeout = given.timeouts?.system ?? 2000
+  const requestTimeout = given.timeouts?.request ?? 5000
+  for (const [name, ms] of [['system', systemTimeout], ['request', requestTimeout]] as const) {
+    if (!Number.isFinite(ms) || ms <= 0) throw new CauthyConfigError(`timeouts.${name} must be a positive number of milliseconds`)
+  }
+  // Every call to Cauthy has a deadline (a call that brings its own signal, like
+  // the event stream that ends with the page, keeps that one).
+  const doFetch: typeof fetch = (input, init = {}) =>
+    (given.fetch ?? fetch)(input, { ...init, signal: init.signal ?? AbortSignal.timeout(requestTimeout) })
   const iconOf = iconFor(issuer)
   const pages = {
     signIn: given.pages?.signIn ? localPath(given.pages.signIn, '/') : undefined,
@@ -288,7 +296,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // from: its invitations open the application's page only when it was told
   // its public origin.
   const acceptInviteUrl = baseURL && pages.acceptInvite ? `${withoutTrailingSlashes(baseURL)}${pages.acceptInvite}` : undefined
-  const ownSystem = createSystem({ issuer, clientId, clientSecret, key: given.systemKey, system: system || undefined, acceptInviteUrl, fetch: given.fetch,
+  const ownSystem = createSystem({ issuer, clientId, clientSecret, key: given.systemKey, system: system || undefined, acceptInviteUrl, fetch: given.fetch, timeoutMs: systemTimeout,
     ...(ownKeys ? { keys: ownKeys, keysClientId: contract?.serviceClientId } : {}) })
 
   // The application's public origin. Without baseURL it is the request's, with

@@ -78,6 +78,8 @@ export interface McpAuthOptions {
   introspect?: boolean | { cacheSeconds?: number }
   /** The fetch to call Cauthy with. Default: the global one. */
   fetch?: typeof fetch
+  /** How long a call to Cauthy (introspection, token exchange) may take, in milliseconds. Default: 5000. */
+  timeoutMs?: number
   /**
    * This server's client_id and secret at Cauthy, for token exchange (AI
    * agents → the server → Server credentials). Defaults:
@@ -223,6 +225,8 @@ export function mcpAuth(options: McpAuthOptions = {}): McpAuth {
   const resource = canonicalResource(rawResource)
   const issuer = withoutTrailingSlashes(options.issuer ?? env('CAUTHY_ISSUER') ?? '')
   if (issuer === '') throw new Error('@cauthyhq/node: issuer (CAUTHY_ISSUER) is not set')
+  const timeoutMs = options.timeoutMs ?? 5000
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('@cauthyhq/node: timeoutMs must be a positive number of milliseconds')
   const required = options.scopes ?? []
   const url = new URL(resource)
   const path = url.pathname === '/' ? '' : url.pathname
@@ -246,6 +250,7 @@ export function mcpAuth(options: McpAuthOptions = {}): McpAuth {
     let active = false
     try {
       const res = await (options.fetch ?? fetch)(`${issuer}/v1/oauth/introspect`, {
+        signal: AbortSignal.timeout(timeoutMs),
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
         body: new URLSearchParams({ token }),
@@ -309,21 +314,27 @@ export function mcpAuth(options: McpAuthOptions = {}): McpAuth {
     const key = `${subject}\n${to}\n${scopes.join(' ')}`
     const kept = exchanged.get(key)
     if (kept && kept.until > Date.now()) return { accessToken: kept.accessToken, scopes: kept.scopes, expiresAt: kept.expiresAt }
-    const res = await (options.fetch ?? fetch)(`${issuer}/v1/oauth/token`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        accept: 'application/json',
-        authorization: `Basic ${btoa(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`)}`,
-      },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-        subject_token: subject,
-        subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-        resource: to,
-        ...(scopes.length > 0 ? { scope: scopes.join(' ') } : {}),
-      }),
-    })
+    let res: Response
+    try {
+      res = await (options.fetch ?? fetch)(`${issuer}/v1/oauth/token`, {
+        signal: AbortSignal.timeout(timeoutMs),
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          accept: 'application/json',
+          authorization: `Basic ${btoa(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`)}`,
+        },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+          subject_token: subject,
+          subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+          resource: to,
+          ...(scopes.length > 0 ? { scope: scopes.join(' ') } : {}),
+        }),
+      })
+    } catch (err) {
+      throw new CauthyExchangeError(503, 'temporarily_unavailable', `Cauthy could not be reached: ${err instanceof Error ? err.message : 'unreachable'}`)
+    }
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
     if (!res.ok || typeof body.access_token !== 'string') {
       throw new CauthyExchangeError(res.status, typeof body.error === 'string' ? body.error : 'server_error',
