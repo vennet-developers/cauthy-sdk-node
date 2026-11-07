@@ -38,7 +38,15 @@ See [`examples/acme-crm`](examples/acme-crm) for a whole application.
 
 ## Verifying a token
 
-`verifyToken(request)` checks a Cauthy access token against Cauthy's published keys. It refuses a system's own token (`system_token`) and a guest's token (`anonymous_token`) where a person is expected; pass `allowSystem` or `allowAnonymous` for an endpoint that takes them. See the spec's [`verification/rules.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/verification/rules.md).
+```ts
+const who = await verifyToken(request, { audience: 'acme-api', tenantId: '<the workspace id>' })   // reads CAUTHY_ISSUER too
+```
+
+`verifyToken(request)` checks a Cauthy access token against Cauthy's published keys, by the rules of the spec's [`verification/rules.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/verification/rules.md) (every vector of the spec passes in CI). The error carries a `reason` from the spec's closed list (`expired`, `wrong_audience`, `system_token`, …).
+
+- **The audience and the workspace are required** (`audience` or `CAUTHY_AUDIENCE`, `tenantId` or `CAUTHY_TENANT_ID`, the id as a lowercase UUID). Without them a token issued for another application or workspace would be accepted, so the verifier refuses to be built (`CauthyConfigError`). `createTokenVerifier(options)` builds it once, at startup.
+- A system's own token (`sys` claim, whatever its value) and a guest's token (`anon: true`) are refused where a person is expected. Pass `allowSystem` or `allowAnonymous` for an endpoint that takes them.
+- Clock tolerance is 30 seconds (`leeway`, 0 to 60). A token over 8192 bytes, with a repeated JSON name, a fractional date or a wrongly typed claim is refused.
 
 ## Moving from cauthy-auth
 
@@ -51,12 +59,13 @@ See [`examples/acme-crm`](examples/acme-crm) for a whole application.
 | `cauthy-auth/react`, `/client`, `/vue`, `/svelte`, `/styles.css` | Keep `cauthy-auth` 0.43 in the browser until `@cauthyhq/js` and `@cauthyhq/react` ship |
 | `npx cauthy-auth …` | The `cauthy` CLI |
 
-Four things change:
+Five things change:
 
 1. **Every `POST` but `/logout` needs `X-Cauthy-Request: 1`** (`403 csrf_required` otherwise). `cauthy-auth` 0.43's browser client sends it; 0.42's does not. Upgrade the browser package in the same deploy, or pass `requestHeader: 'warn'` for that one deploy. `'warn'` is a migration aid and leaves in 2.0.
 2. **Answers carry `Cauthy-Protocol: 1`, `Cache-Control: no-store`, and sign-in answers a `next` step** (`done`, `mfa`, `verify_email`, `code`, `passkey`, `one_tap`, `redirect`). Additions only.
-3. **`verifyToken` refuses system and guest tokens** unless you allow them.
-4. **Error messages start with `@cauthyhq/node:`** instead of `cauthy-auth:`. Classes and codes are the same.
+3. **`verifyToken` refuses system and guest tokens since 1.0** (`allowSystem`, `allowAnonymous`), **and needs an audience and a workspace** (`audience`/`CAUTHY_AUDIENCE`, `tenantId`/`CAUTHY_TENANT_ID`): 0.42 skipped those checks when they were not set. It also holds tokens to the spec's stricter shape (see above), and its error's `reason` is a code, not jose's text.
+4. **Calls to Cauthy have a deadline** (`timeouts`, below); `pushTheme`, `pushPolicy`, `pullPolicy` and `connectSystem` take `timeoutMs`.
+5. **Error messages start with `@cauthyhq/node:`** instead of `cauthy-auth:`. Classes and codes are the same.
 
 `/sign-in/anonymous`, `/me/upgrade` and `connectSystem` are deprecated: one `DeprecationWarning` per process, removed in 2.0.
 
@@ -79,6 +88,10 @@ It refuses to start when any `CAUTHY_*` variable is also set, when the link name
 | `requestHeader` | `'required'` | `'warn'` lets a `POST` without `X-Cauthy-Request` through, saying so once per process |
 | `timeouts.system` | `2000` | Deadline in milliseconds of the application's own calls to Cauthy (`auth.system`, the sign-in proof) |
 | `timeouts.request` | `5000` | Deadline in milliseconds of the sign-in screens' calls and of the code, refresh and userinfo calls |
+
+## Testing your application
+
+`@cauthyhq/node/testing` is a Cauthy that lives in memory (`FakeCauthy`) and a browser that keeps cookies (`Browser`), for the tests of your own application. **Test-only**: it signs in whoever it was told about and checks nothing a real Cauthy does. Do not import it from production code.
 
 ## Conformance
 
