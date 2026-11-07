@@ -15,6 +15,14 @@ export class FakeCauthy {
   expiresIn = 600
   /** What token answers say of the session's kind; absent means an older Cauthy that does not say. */
   persistent: boolean | undefined = undefined
+  /** Serve the API an application's own screens use (/v1/auth/*). Off unless a test asks. */
+  ownScreens = false
+  /** The workspace those screens sign in to, as X-Tenant-Key names it. */
+  tenant = 'acme'
+  /** Each account's password, by email: only these accounts sign in with one. */
+  passwords = new Map<string, string>()
+  /** What GET /v1/auth/settings answers. */
+  settings: Record<string, unknown> = { allow_password: true, allow_signup: false, allow_passkeys: false, persistent_sessions: false }
   private n = 0
 
   constructor() {
@@ -46,6 +54,7 @@ export class FakeCauthy {
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
     const form = new URLSearchParams(init?.body instanceof URLSearchParams ? init.body : String(init?.body ?? ''))
     const bearer = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? ''
+    if (this.ownScreens && url.pathname.startsWith('/v1/auth/')) return this.ownScreen(url, init)
 
     if (url.pathname === '/v1/oauth/token') {
       if (form.get('grant_type') === 'authorization_code') {
@@ -95,6 +104,28 @@ export class FakeCauthy {
       return reply(200, { data, total_count: data.length })
     }
     return reply(404, {})
+  }
+
+  /** The part of /v1/auth/* a password sign-in and the sign-in form read. */
+  private ownScreen(url: URL, init: RequestInit | undefined): Response {
+    const reply = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+    const refuse = (status: number, code: string, message: string) => reply(status, { errors: [{ code, message }] })
+    if (new Headers(init?.headers).get('x-tenant-key') !== this.tenant) return refuse(404, 'tenant_not_found', 'no such workspace')
+    const method = init?.method ?? 'GET'
+    if (method === 'POST' && url.pathname === '/v1/auth/login') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { email?: string; password?: string }
+      const user = [...this.users.values()].find((u) => u.email === body.email)
+      const password = body.email === undefined ? undefined : this.passwords.get(body.email)
+      if (!user || !user.active || password === undefined || password !== body.password) {
+        return refuse(401, 'invalid_credentials', 'invalid email or password')
+      }
+      return reply(200, { data: this.issue(user.sub) })
+    }
+    if (method === 'GET' && url.pathname === '/v1/auth/settings') return reply(200, { data: this.settings })
+    if (method === 'GET' && (url.pathname === '/v1/auth/social/providers' || url.pathname === '/v1/auth/sso/connections')) return reply(200, { data: [] })
+    if (method === 'GET' && url.pathname === '/v1/auth/webauthn/place') return reply(200, { data: { here: false, on_cauthy: false } })
+    return refuse(404, 'not_found', 'not found')
   }
 }
 
