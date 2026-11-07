@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "types": ["node"],
+    "paths": {
+      "@cauthyhq/node": ["./src/index.ts"],
+      "@cauthyhq/node/keys": ["./src/keystores.ts"],
+      "@cauthyhq/node/express": ["./src/express.ts"],
+      "@cauthyhq/node/fastify": ["./src/fastify.ts"],
+      "@cauthyhq/node/hono": ["./src/hono.ts"],
+      "@cauthyhq/node/next": ["./src/next.ts"],
+      "@cauthyhq/node/mcp": ["./src/mcp.ts"],
+      "@cauthyhq/node/theme": ["./src/theme.ts"]
+    }
+  },
+  "include": ["src", "test-support", "examples", "conformance"],
+  "exclude": ["node_modules", "dist"]
+}

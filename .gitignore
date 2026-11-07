@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.conformance/
+conformance-report.json
+*.tgz
+.DS_Store
+.env*

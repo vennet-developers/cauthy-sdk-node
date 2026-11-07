@@ -1,0 +1,175 @@
+{
+  "name": "@cauthyhq/node",
+  "version": "1.0.0",
+  "description": "Cauthy for Node.js backends: sign-in, cookie sessions, organizations and Pact contract mode, behind the auth-bff protocol.",
+  "license": "MIT",
+  "author": "Vennet Developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vennet-developers/cauthy-sdk-node.git"
+  },
+  "homepage": "https://github.com/vennet-developers/cauthy-sdk-node#readme",
+  "bugs": "https://github.com/vennet-developers/cauthy-sdk-node/issues",
+  "cauthy": {
+    "protocol": 1
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.mts",
+        "default": "./dist/express.mjs"
+      },
+      "require": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      }
+    },
+    "./fastify": {
+      "import": {
+        "types": "./dist/fastify.d.mts",
+        "default": "./dist/fastify.mjs"
+      },
+      "require": {
+        "types": "./dist/fastify.d.ts",
+        "default": "./dist/fastify.js"
+      }
+    },
+    "./hono": {
+      "import": {
+        "types": "./dist/hono.d.mts",
+        "default": "./dist/hono.mjs"
+      },
+      "require": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next.d.mts",
+        "default": "./dist/next.mjs"
+      },
+      "require": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      }
+    },
+    "./mcp": {
+      "import": {
+        "types": "./dist/mcp.d.mts",
+        "default": "./dist/mcp.mjs"
+      },
+      "require": {
+        "types": "./dist/mcp.d.ts",
+        "default": "./dist/mcp.js"
+      }
+    },
+    "./keys": {
+      "import": {
+        "types": "./dist/keys.d.mts",
+        "default": "./dist/keys.mjs"
+      },
+      "require": {
+        "types": "./dist/keys.d.ts",
+        "default": "./dist/keys.js"
+      }
+    },
+    "./theme": {
+      "import": {
+        "types": "./dist/theme.d.mts",
+        "default": "./dist/theme.mjs"
+      },
+      "require": {
+        "types": "./dist/theme.d.ts",
+        "default": "./dist/theme.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:fixtures": "sh scripts/check-fixtures.sh",
+    "check:package": "sh scripts/check-package.sh",
+    "conformance": "sh scripts/conformance.sh",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "fastify": ">=4",
+    "hono": ">=4",
+    "next": ">=14"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "cauthy",
+    "auth",
+    "authentication",
+    "oauth",
+    "oidc",
+    "session",
+    "bff",
+    "express",
+    "fastify",
+    "hono",
+    "nextjs",
+    "pact"
+  ],
+  "dependencies": {
+    "jose": "5.10.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@types/express": "5.0.6",
+    "@types/node": "20.19.41",
+    "@types/react": "19.2.17",
+    "cauthy-auth": "0.42.0",
+    "express": "5.3.0",
+    "fastify": "5.8.5",
+    "hono": "4.13.13",
+    "next": "15.5.27",
+    "publint": "0.3.25",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "tsup": "8.5.1",
+    "tsx": "4.22.4",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
