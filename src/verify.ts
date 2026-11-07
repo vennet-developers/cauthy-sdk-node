@@ -10,6 +10,7 @@
 // verification/rules.md.
 
 import { compactVerify, createRemoteJWKSet, type CompactVerifyGetKey, type JWTVerifyGetKey } from 'jose'
+import { parseStrict } from './json'
 import { CauthyConfigError } from './types'
 import { withoutTrailingSlashes } from './url'
 
@@ -19,6 +20,8 @@ export interface TokenIdentity {
   userId: string
   tenantId: string
   email?: string
+  /** What the token says of the address, when it says (a boolean; absent otherwise). */
+  emailVerified?: boolean
   roles: string[]
   /** Set when the token is a system's own and not a person's (only with `allowSystem`). */
   system?: string
@@ -93,7 +96,8 @@ function env(name: string): string | undefined {
 }
 
 function bearer(from: string | Request | Headers): string {
-  if (typeof from === 'string') return from.replace(/^Bearer\s+/i, '').trim()
+  // A raw token is taken as it is: surrounding whitespace is the caller's mistake (R2).
+  if (typeof from === 'string') return from.replace(/^Bearer\s+/i, '')
   const header = (from instanceof Headers ? from : from.headers).get('authorization') ?? ''
   return /^Bearer\s+/i.test(header) ? header.replace(/^Bearer\s+/i, '').trim() : ''
 }
@@ -112,11 +116,10 @@ function issuerAddress(value: string, what: string): string {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
-const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
 function decodeJson(segment: string): unknown {
   const padded = segment.replace(/-/g, '+').replace(/_/g, '/')
-  return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'))
+  return parseStrict(Buffer.from(padded, 'base64').toString('utf8'))
 }
 
 /**
@@ -155,6 +158,10 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     // R3, R4, R5: the algorithm is the verifier's, never the token's.
     if (header.alg !== 'RS256') throw new CauthyTokenError('alg_not_allowed')
     if ('crit' in header) throw new CauthyTokenError('unsupported_header')
+    // R4: typ is not required, but when present it is JWT or at+jwt, in any case.
+    if ('typ' in header && !(typeof header.typ === 'string' && ['jwt', 'at+jwt'].includes(header.typ.toLowerCase()))) {
+      throw new CauthyTokenError('unsupported_header', 'typ')
+    }
     if (typeof header.kid !== 'string' || header.kid === '') throw new CauthyTokenError('missing_kid')
 
     // R5, R6
@@ -175,7 +182,7 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     // R7
     let claims: unknown
     try {
-      claims = JSON.parse(new TextDecoder().decode(payloadBytes))
+      claims = parseStrict(new TextDecoder().decode(payloadBytes))
     } catch {
       throw new CauthyTokenError('malformed', 'the payload is not JSON')
     }
@@ -192,10 +199,10 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     if (typeof claims.tid !== 'string' || !UUID.test(claims.tid)) bad('tid')
     const aud = claims.aud
     if (!(typeof aud === 'string' || (Array.isArray(aud) && aud.length > 0 && aud.every((a) => typeof a === 'string')))) bad('aud')
-    for (const name of ['exp', 'iat', 'nbf']) if (claims[name] !== undefined && !isNumber(claims[name])) bad(name)
+    for (const name of ['exp', 'iat', 'nbf']) if (claims[name] !== undefined && !Number.isInteger(claims[name])) bad(name)
     if (claims.roles !== undefined && claims.roles !== null && !(Array.isArray(claims.roles) && claims.roles.every((r) => typeof r === 'string'))) bad('roles')
-    for (const name of ['email', 'sys']) if (claims[name] !== undefined && typeof claims[name] !== 'string') bad(name)
-    if (claims.anon !== undefined && typeof claims.anon !== 'boolean') bad('anon')
+    if (claims.email !== undefined && typeof claims.email !== 'string') bad('email')
+    for (const name of ['email_verified', 'anon']) if (claims[name] !== undefined && typeof claims[name] !== 'boolean') bad(name)
 
     // R9, R10
     if (!issuers.includes(claims.iss as string)) throw new CauthyTokenError('wrong_issuer')
@@ -208,13 +215,15 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     // R12
     if (claims.tid !== tenant) throw new CauthyTokenError('wrong_tenant')
     // R13, R14
-    if (claims.sys !== undefined && !options.allowSystem) throw new CauthyTokenError('system_token')
+    // Its presence is the mark, whatever the value (null and false included).
+    if ('sys' in claims && !options.allowSystem) throw new CauthyTokenError('system_token')
     if (claims.anon === true && !options.allowAnonymous) throw new CauthyTokenError('anonymous_token')
 
     return {
       userId: claims.sub as string,
       tenantId: claims.tid as string,
       ...(typeof claims.email === 'string' && claims.email !== '' ? { email: claims.email } : {}),
+      ...(typeof claims.email_verified === 'boolean' ? { emailVerified: claims.email_verified } : {}),
       roles: Array.isArray(claims.roles) ? (claims.roles as string[]) : [],
       ...(typeof claims.sys === 'string' && claims.sys !== '' ? { system: claims.sys } : {}),
       ...(claims.anon === true ? { anonymous: true as const } : {}),
