@@ -97,13 +97,14 @@ const MAX_KEYS_BYTES = 64 * 1024
 const KEYS_TIMEOUT_MS = 5000
 const KEYS_COOLDOWN_MS = 30_000
 const KEYS_DEFAULT_TTL_S = 300
+const KEYS_MIN_TTL_S = 60
 const KEYS_MAX_TTL_S = 3600
 
 /**
  * Cauthy's published keys (K1 to K5 of verification/rules.md): fetched with a
  * GET that follows no redirect, within 5 seconds, from `<issuer>/.well-known/jwks.json`;
  * only a 200 of at most 64 KiB counts. Kept for the answer's max-age (at most
- * an hour, 5 minutes when it names none); a `kid` the set lacks fetches again
+ * an hour and at least a minute, 5 minutes when it names none); a `kid` the set lacks fetches again
  * only if the last fetch is older than 30 seconds; one fetch at a time; a
  * failed fetch keeps the last good set, and with none it is
  * `CauthyUnavailableError`.
@@ -124,7 +125,8 @@ export function remoteKeys(issuer: string, fetchKeys: typeof fetch = fetch): JWT
       if (!parsed || !Array.isArray(parsed.keys)) throw new Error('not a key set')
       set = createLocalJWKSet(parsed)
       const maxAge = /max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')
-      const ttl = Math.min(maxAge ? Number(maxAge[1]) : KEYS_DEFAULT_TTL_S, KEYS_MAX_TTL_S)
+      // At least a minute: max-age=0 must not mean a fetch for every token.
+      const ttl = Math.max(KEYS_MIN_TTL_S, Math.min(maxAge ? Number(maxAge[1]) : KEYS_DEFAULT_TTL_S, KEYS_MAX_TTL_S))
       expiresAt = Date.now() + ttl * 1000
     } catch (err) {
       // The last good set stands, and is not asked for again before the cooldown:

@@ -29,6 +29,22 @@ describe('Cauthy\'s published keys', () => {
     expect(String(answer.mock.calls[0][0])).toBe(`${issuer}/.well-known/jwks.json`)
   })
 
+  it('are kept at least 60 seconds, whatever the max-age: 0 does not mean one fetch per token', async () => {
+    const answer = vi.fn(keysAnswer({ 'cache-control': 'max-age=0' }))
+    const keys = remoteKeys(issuer, answer as never)
+    const opts = { ...options(answer as never), jwks: keys }
+    for (let i = 0; i < 5; i++) await verifyToken(token, opts)
+    expect(answer).toHaveBeenCalledTimes(1)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 61_000)
+      await verifyToken(token, { ...opts, now: new Date() })
+      expect(answer).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('are fetched again once the max-age has passed', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
