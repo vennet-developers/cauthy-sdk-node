@@ -73,16 +73,19 @@ function addCookies(res: ServerResponse, cookies: string[]): void {
 }
 
 /**
- * Serves the routes under the handler's `basePath`, and gives every other
+ * Serves the routes under the handler's `basePath` (and, by contract, the
+ * application's published key), and gives every other
  * request `req.cauthy()`. Mount it once, before the routes that use it.
  */
 export function cauthyExpress(auth: Cauthy) {
   const base = auth.options.basePath
+  // By contract the application also publishes its key, outside basePath.
+  const key = auth.pact?.contract.jwksPath
   return function cauthy(req: IncomingMessage, res: ServerResponse, next: Next): void {
     const request = req as NodeRequest
     const path = (request.originalUrl ?? request.url ?? '/').split('?')[0]
 
-    if (path === base || path.startsWith(`${base}/`)) {
+    if (path === base || path.startsWith(`${base}/`) || path === key) {
       void (async () => {
         const answer = await auth.handler(await toWebRequest(request, true))
         res.statusCode = answer.status

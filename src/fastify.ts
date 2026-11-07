@@ -100,6 +100,9 @@ const plugin: FastifyPluginAsync<CauthyFastifyOptions> = async (app: FastifyInst
     return reply.send(res.body === null ? null : Buffer.from(await res.arrayBuffer()))
   }
   app.route({ method: ['GET', 'POST'], url: `${base}/*`, handler: serve })
+  // By contract the application also publishes its key, outside basePath.
+  const key = auth.pact?.contract.jwksPath
+  if (key) app.route({ method: ['GET', 'HEAD', 'POST'], url: key, handler: serve })
   // Tests build many apps with routes of their own, and mount nothing for real.
   if (checkMount && process.env.NODE_ENV !== 'test') app.addHook('onReady', () => probe(app, auth))
 }

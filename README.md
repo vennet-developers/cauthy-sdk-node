@@ -148,6 +148,8 @@ import graph from './contracts/graph.json'
 export const auth = createCauthy({ contract: { graph, system: 'acme-crm' }, keys: postgresKeyStore(query), audience: 'cauthy' })
 ```
 
+By contract the application also publishes its own key at the contract's `jwks_url` path (`/.well-known/pact-jwks.json` by default). The Express, Hono and Fastify adapters route that path to the handler as they do `/api/auth`, so those need no route of their own for it. **Next.js and TanStack Start still need a route file** for it that calls `auth.handler(request)`.
+
 It refuses to start when any `CAUTHY_*` variable of the standard mode is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, when a workspace named by id is pinned to a different `tenant_id`, when `system_proof` is not `off`, `auto` or `required`, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session. See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
 
 ## Options added in 1.0

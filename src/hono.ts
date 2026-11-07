@@ -26,14 +26,17 @@ export interface CauthyVariables {
 type Env = { Variables: CauthyVariables }
 
 /**
- * Serves the routes under the handler's `basePath`, and sets `session` for
+ * Serves the routes under the handler's `basePath` (and, by contract, the
+ * application's published key), and sets `session` for
  * every other request. Mount it once, before the routes that use it.
  */
 export function cauthyHono(auth: Cauthy): MiddlewareHandler<Env> {
   const base = auth.options.basePath
+  // By contract the application also publishes its key, outside basePath.
+  const key = auth.pact?.contract.jwksPath
   return async (c, next) => {
     const path = new URL(c.req.url).pathname
-    if (path === base || path.startsWith(`${base}/`)) return auth.handler(c.req.raw)
+    if (path === base || path.startsWith(`${base}/`) || path === key) return auth.handler(c.req.raw)
 
     const resolved = await auth.resolve(c.req.raw)
     c.set('session', resolved.session)
