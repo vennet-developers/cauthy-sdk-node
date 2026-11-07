@@ -4,7 +4,7 @@ import { cssVariables, pushTheme, themeFromCss, themeFromStackmyth, themeVariabl
 // A Stackmyth theme file, as the library ships them.
 const STACKMYTH = `
 @layer themes {
-  [data-theme=vennet] {
+  [data-theme=acme] {
     --sm-font-family: "Outfit", system-ui, sans-serif;
     --sm-bg-interactive: #0F1113;
     --sm-text-inverse: #ffffff;
@@ -58,7 +58,7 @@ const BRAND = `
 
 describe('reading a Stackmyth theme', () => {
   it('takes the named theme of a Stackmyth theme file', () => {
-    const { theme, warnings } = themeFromStackmyth(STACKMYTH, { theme: 'vennet', logoUrl: 'https://cdn.example.com/logo.svg' })
+    const { theme, warnings } = themeFromStackmyth(STACKMYTH, { theme: 'acme', logoUrl: 'https://cdn.example.com/logo.svg' })
     expect(theme).toEqual({
       background: '#fdfdfc', surface: '#f2f4f5', text: '#0f1113', textMuted: '#2c3234', border: '#e4e2dc',
       primary: '#0f1113', primaryText: '#ffffff', accent: '#0e7c9e', error: '#c4342b', errorBackground: '#f7ecea',

@@ -14,12 +14,13 @@ import { memoryReplayStore } from './webhook'
 
 const ROOT = 'a-root-key-of-thirty-two-random-bytes-0123'
 const TENANT = '6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b'
+const SUBJECT = 'b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e'
 
 /** The context graph, with Acme CRM signing in with Cauthy and acting in it by its own key. */
 function graph(over: { service?: boolean; links?: number; slug?: boolean; jwks?: string } = {}) {
   const link = (n: number) => ({
     from: 'acme-crm', relation: 'links', to: 'cauthy', link: n === 0 ? 'acme-crm-signs-in-with-cauthy' : `acme-crm-other-${n}`,
-    identity: { issuer: 'cauthy', tenant: TENANT, subject: 'b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e' },
+    identity: { issuer: 'cauthy', tenant: TENANT, subject: SUBJECT },
     sign_in: { client_id: n === 0 ? 'pact.acme-crm-signs-in-with-cauthy' : `pact.acme-crm-other-${n}`,
       redirect_uris: ['https://app.test/api/auth/callback'], require_system_proof: false },
     ...(over.service === false ? {} : {

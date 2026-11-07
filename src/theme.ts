@@ -90,7 +90,7 @@ export interface CauthyTheme {
 export interface StackmythThemeOptions {
   /**
    * The named theme to read, when the stylesheet keeps several under
-   * `[data-theme=…]` (`"vennet"`). Without it only what applies to every
+   * `[data-theme=…]` (`"acme"`). Without it only what applies to every
    * page (`:root`) is read.
    */
   theme?: string
