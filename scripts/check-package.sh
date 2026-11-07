@@ -36,7 +36,8 @@ if find "$tmp/package" -name 'testing.*' ! -path "$tmp/package/dist/testing.*" |
   echo "testing code outside dist/testing.*" >&2
   exit 1
 fi
-if grep -rl 'FakeCauthy' "$tmp/package" | grep -v "^$tmp/package/dist/testing\." | grep -q .; then
+# (The README may name it; the code may not.)
+if grep -rl 'FakeCauthy' "$tmp/package/dist" | grep -v "^$tmp/package/dist/testing\." | grep -q .; then
   echo "the fake Cauthy leaked into another file of the tarball" >&2
   exit 1
 fi
