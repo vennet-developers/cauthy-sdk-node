@@ -20,6 +20,7 @@ Node 20 or later. ESM and CommonJS. One dependency: `jose`.
 | --- | --- |
 | `CAUTHY_ISSUER` | Your Cauthy's address, e.g. `https://id.example.com` |
 | `CAUTHY_CLIENT_ID` | The client id the dashboard showed in step 1 |
+| `CAUTHY_CLIENT_SECRET` | Only if you registered the application as a confidential client in the dashboard: the client secret it showed once. Public clients need none, and neither does contract mode |
 | `CAUTHY_SECRET` | You make it: `openssl rand -base64 32`. It encrypts the session cookie; keep it out of git |
 | `CAUTHY_TENANT` | Your workspace's slug in Cauthy, e.g. `acme`, for the sign-in screens your application draws itself |
 | `CAUTHY_BASE_URL` | Your application's public address, e.g. `http://localhost:3000` |
