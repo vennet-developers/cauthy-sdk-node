@@ -127,8 +127,11 @@ export function remoteKeys(issuer: string, fetchKeys: typeof fetch = fetch): JWT
       const ttl = Math.min(maxAge ? Number(maxAge[1]) : KEYS_DEFAULT_TTL_S, KEYS_MAX_TTL_S)
       expiresAt = Date.now() + ttl * 1000
     } catch (err) {
-      // The last good set stands; with none, the application cannot tell.
+      // The last good set stands, and is not asked for again before the cooldown:
+      // an outage must not cost a wait on every verification. With none, the
+      // application cannot tell.
       if (set === undefined) throw new CauthyUnavailableError(err instanceof Error ? err.message : 'unreachable')
+      expiresAt = Math.max(expiresAt, Date.now() + KEYS_COOLDOWN_MS)
     }
   }
   const refresh = (): Promise<void> => {

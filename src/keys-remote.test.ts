@@ -32,10 +32,10 @@ describe('Cauthy\'s published keys', () => {
   it('are fetched again once the max-age has passed', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
-      const answer = vi.fn(keysAnswer({ 'cache-control': 'max-age=10' }))
+      const answer = vi.fn(keysAnswer({ 'cache-control': 'max-age=100' }))
       const keys = remoteKeys(issuer, answer as never)
       await verifyToken(token, { ...options(answer as never), jwks: keys })
-      vi.setSystemTime(Date.now() + 11_000)
+      vi.setSystemTime(Date.now() + 101_000)
       await verifyToken(token, { ...options(answer as never), jwks: keys, now: new Date(Date.now()) })
       expect(answer).toHaveBeenCalledTimes(2)
     } finally {
@@ -52,15 +52,31 @@ describe('Cauthy\'s published keys', () => {
   })
 
   it('failing to arrive is Cauthy unavailable; a good set already held survives a later failure', async () => {
-    let failing = false
-    const answer = async () => (failing ? Promise.reject(new TypeError('fetch failed')) : new Response(jwksBody, { headers: { 'cache-control': 'max-age=0' } }))
-    const keys = remoteKeys(issuer, answer as never)
-    const opts = { ...options(answer as never), jwks: keys }
-    await verifyToken(token, opts)
-    failing = true
-    await expect(verifyToken(token, opts)).resolves.toBeTruthy() // the last good set stands
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      let failing = false
+      const answer = vi.fn(async () => (failing ? Promise.reject(new TypeError('fetch failed')) : new Response(jwksBody, { headers: { 'cache-control': 'max-age=100' } })))
+      const keys = remoteKeys(issuer, answer as never)
+      const opts = { ...options(answer as never), jwks: keys }
+      await verifyToken(token, opts)
+      failing = true
+      vi.setSystemTime(Date.now() + 101_000)
+      await expect(verifyToken(token, { ...opts, now: new Date() })).resolves.toBeTruthy() // the last good set stands
+      expect(answer).toHaveBeenCalledTimes(2)
+      // During the outage, nothing is fetched again before the cooldown: the last good set answers at once.
+      vi.setSystemTime(Date.now() + 5_000)
+      await verifyToken(token, { ...opts, now: new Date() })
+      await verifyToken(token, { ...opts, now: new Date() })
+      expect(answer).toHaveBeenCalledTimes(2)
+      // After the cooldown it tries again.
+      vi.setSystemTime(Date.now() + 30_000)
+      await verifyToken(token, { ...opts, now: new Date() })
+      expect(answer).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
     const cold = remoteKeys(issuer, (async () => new Response('nope', { status: 500 })) as never)
-    await expect(verifyToken(token, { ...opts, jwks: cold })).rejects.toBeInstanceOf(CauthyUnavailableError)
+    await expect(verifyToken(token, { ...options(fetch), jwks: cold })).rejects.toBeInstanceOf(CauthyUnavailableError)
   })
 
   it('follow no redirect', async () => {
