@@ -37,6 +37,7 @@ import {
 import { withoutTrailingSlashes } from './url'
 import { finish } from './protocol'
 import { deadline } from './deadline'
+import { createTokenVerifier, type TokenIdentity, type VerifyTokenOptions } from './verify'
 import { deprecated } from './deprecate'
 import { checkMount as probeMount, type MountTarget } from './mount'
 
@@ -150,6 +151,15 @@ export interface Cauthy {
    * delivery is signed with Cauthy's own key.
    */
   webhook(request: Request, options?: Pick<VerifyWebhookOptions, 'jwks' | 'now' | 'url'>): Promise<CauthyEvent>
+  /**
+   * Verifies a Cauthy access token (or a request's `Authorization: Bearer`) for
+   * an API of this application: `verifyToken` with this instance's issuer, its
+   * workspace (by contract, the link's `tenant_id`; otherwise `tenantId` or
+   * `CAUTHY_TENANT_ID`) and its audience (`audience` or `CAUTHY_AUDIENCE`).
+   */
+  verifyToken(from: string | Request | Headers, options?: Partial<VerifyTokenOptions>): Promise<TokenIdentity>
+  /** The same, built once: throws `CauthyConfigError` now if the audience or the workspace is missing. */
+  tokenVerifier(options?: Partial<VerifyTokenOptions>): (from: string | Request | Headers) => Promise<TokenIdentity>
   /**
    * The application acting on its own, with no person's token: its
    * organizations, their members, invitations. Needs the client's secret, or
@@ -1865,6 +1875,13 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // The endpoint's public address: the application's origin when it was
   // given (a proxy may hide it from the request), with the request's path.
   const replay = given.webhookReplay ?? memoryReplayStore()
+  const tokenVerifier: Cauthy['tokenVerifier'] = (o = {}) => createTokenVerifier({
+    issuer,
+    tenantId: contract?.tenantId ?? given.tenantId,
+    audience: given.audience,
+    fetch: given.fetch,
+    ...o,
+  })
   const webhook: Cauthy['webhook'] = (request, o = {}) =>
     verifyWebhook(request, { issuer, url: o.url ?? `${originOf(request)}${new URL(request.url).pathname}`, jwks: o.jwks, now: o.now, replay })
 
@@ -1886,6 +1903,8 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     handler,
     checkMount: (target: MountTarget) => probeMount(basePath, target),
     webhook,
+    tokenVerifier,
+    verifyToken: async (from, o) => tokenVerifier(o)(from),
     system: systemThatRefreshes,
     getSession,
     status,

@@ -35,6 +35,17 @@ export interface CauthyOptions {
    */
   requestHeader?: 'required' | 'warn'
   /**
+   * The audience of the access tokens `auth.verifyToken` accepts: the
+   * deployment's `JWT_AUDIENCE`, which Cauthy requires its operator to set and
+   * has no default for. Default: `CAUTHY_AUDIENCE`.
+   */
+  audience?: string
+  /**
+   * The workspace's id (a lowercase UUID) for `auth.verifyToken`. By contract
+   * it comes from the link's `tenant_id`; otherwise: this, or `CAUTHY_TENANT_ID`.
+   */
+  tenantId?: string
+  /**
    * The application's own public origin (`https://app.example.com`): the
    * redirect URI, the cookies' `Secure` flag and which forms are its own come
    * from it. Default: `CAUTHY_BASE_URL`, else the origin of each request, with
