@@ -32,10 +32,21 @@ export async function checkMount(basePath: string, target: MountTarget): Promise
     try {
       res = await send(probe)
     } catch (err) {
-      throw new CauthyConfigError(`could not reach ${what} to check where the handler is mounted: ${(err as Error).message}`)
+      // In process, a throw is the handler's own; over HTTP, it is the connection.
+      throw new CauthyConfigError(typeof target === 'string'
+        ? `could not reach ${what} to check where the handler is mounted: ${(err as Error).message}`
+        : `the handler threw on ${what}: ${(err as Error).message}`)
     }
     await res.body?.cancel()
     if (res.headers.get('cauthy-protocol') !== PROTOCOL_VERSION) {
+      // Nothing is followed: a redirect is the answer, and says where the mount goes.
+      if (res.status >= 300 && res.status < 400) {
+        throw new CauthyConfigError(`${what}: the mount redirects (${res.status} to ${res.headers.get('location') ?? 'nowhere'}): ` +
+          `a proxy rule, a trailing-slash or HTTPS redirect sits in front of ${basePath}. Cauthy is not what answers.`)
+      }
+      if (res.status >= 500) {
+        throw new CauthyConfigError(`${what} answered ${res.status} without Cauthy-Protocol: ${PROTOCOL_VERSION}: the application crashed before or instead of the handler. Look at its log.`)
+      }
       throw new CauthyConfigError(`${what} answered ${res.status} without Cauthy-Protocol: ${PROTOCOL_VERSION}: something other than this handler answers under ${basePath}. ` +
         'Move that route, mount Cauthy before it, or give Cauthy another basePath.')
     }

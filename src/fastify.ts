@@ -100,7 +100,8 @@ const plugin: FastifyPluginAsync<CauthyFastifyOptions> = async (app: FastifyInst
     return reply.send(res.body === null ? null : Buffer.from(await res.arrayBuffer()))
   }
   app.route({ method: ['GET', 'POST'], url: `${base}/*`, handler: serve })
-  if (checkMount) app.addHook('onReady', () => probe(app, auth))
+  // Tests build many apps with routes of their own, and mount nothing for real.
+  if (checkMount && process.env.NODE_ENV !== 'test') app.addHook('onReady', () => probe(app, auth))
 }
 
 /**

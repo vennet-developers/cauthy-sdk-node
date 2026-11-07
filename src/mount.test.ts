@@ -33,9 +33,21 @@ describe('checking that the handler is what answers under basePath', () => {
     await expect(auth.checkMount(catchAll)).rejects.toThrow(/cauthy-mount-check answered 404/)
   })
 
+  it('reports a redirect as a redirect, not as another handler', async () => {
+    const { auth } = app()
+    const redirecting = async () => new Response(null, { status: 307, headers: { location: 'https://login.acme.example/' } })
+    await expect(auth.checkMount(redirecting)).rejects.toThrow(/the mount redirects \(307 to https:\/\/login.acme.example\/\)/)
+  })
+
+  it('reports a handler that crashes as a crash', async () => {
+    const { auth } = app()
+    await expect(auth.checkMount(async () => { throw new Error('boom') })).rejects.toThrow(/handler threw on .*: boom/)
+    await expect(auth.checkMount(async () => new Response('oops', { status: 500 }))).rejects.toThrow(/answered 500.*crash/)
+  })
+
   it('says it could not reach the application', async () => {
     const { auth } = app()
-    await expect(auth.checkMount(async () => { throw new TypeError('fetch failed') })).rejects.toThrow(/could not reach GET \/api\/auth\/session/)
+    await expect(auth.checkMount('http://127.0.0.1:1')).rejects.toThrow(/could not reach GET \/api\/auth\/session/)
     await expect(auth.checkMount('not an origin')).rejects.toThrow(/origin/)
   })
 
@@ -60,12 +72,35 @@ describe('checking that the handler is what answers under basePath', () => {
 
   it('is run by the Fastify plugin itself when the server is ready', async () => {
     const { auth } = app()
-    const fastify = Fastify()
-    // Another route, more specific than the plugin's, takes the session route.
-    fastify.get('/api/auth/session', async () => ({ mine: true }))
-    await fastify.register(cauthyFastify, { auth })
-    await expect(fastify.ready()).rejects.toThrow(/answered 200 without Cauthy-Protocol: 1/)
-    await fastify.close().catch(() => undefined)
+    const before = process.env.NODE_ENV
+    process.env.NODE_ENV = 'development' // vitest runs as 'test', which skips the check
+    try {
+      const fastify = Fastify()
+      // Another route, more specific than the plugin's, takes the session route.
+      fastify.get('/api/auth/session', async () => ({ mine: true }))
+      await fastify.register(cauthyFastify, { auth })
+      await expect(fastify.ready()).rejects.toThrow(/answered 200 without Cauthy-Protocol: 1/)
+      await fastify.close().catch(() => undefined)
+    } finally {
+      if (before === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = before
+    }
+  })
+
+  it('is skipped by the Fastify plugin under NODE_ENV=test', async () => {
+    const { auth } = app()
+    const before = process.env.NODE_ENV
+    process.env.NODE_ENV = 'test'
+    try {
+      const fastify = Fastify()
+      fastify.get('/api/auth/session', async () => ({ mine: true }))
+      await fastify.register(cauthyFastify, { auth })
+      await expect(fastify.ready()).resolves.toBeDefined()
+      await fastify.close()
+    } finally {
+      if (before === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = before
+    }
   })
 
   it('can be turned off in the Fastify plugin', async () => {
