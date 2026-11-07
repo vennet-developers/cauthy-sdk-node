@@ -45,6 +45,26 @@ describe('a link that requires a verified address', () => {
     expect(res.headers.getSetCookie().filter((c) => c.startsWith('cauthy_session'))).toEqual([])
   })
 
+  it('revokes the refresh token it was just given, when it refuses', async () => {
+    const a = app(true, false)
+    await signIn(a)
+    expect(a.cauthy.revoked).toHaveLength(1)
+  })
+
+  it('sends the hosted callback back to the sign-in page with the reason, and clears the flow', async () => {
+    const a = app(true, false)
+    const start = await a.auth.handler(a.browser.request(a.auth.urls.signIn()))
+    a.browser.take(start)
+    const back = new URL(a.cauthy.authorize(start.headers.get('location')!))
+    const res = await a.auth.handler(a.browser.request(back.pathname + back.search))
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toContain('auth_error=email_not_verified')
+    expect(res.headers.getSetCookie().some((c) => c.startsWith('cauthy_session_flow=;') || c.startsWith('cauthy_session_flow=; '))).toBe(true)
+    expect(res.headers.getSetCookie().filter((c) => c.startsWith('cauthy_session.'))).toEqual([])
+    expect(a.cauthy.revoked).toHaveLength(1)
+    expect(res.headers.get('cauthy-protocol')).toBe('1')
+  })
+
   it('lets a confirmed address in', async () => {
     expect((await signIn(app(true, true))).status).toBe(200)
   })

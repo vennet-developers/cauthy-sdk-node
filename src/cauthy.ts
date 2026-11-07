@@ -374,6 +374,13 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   const kindOf = (body: any, was?: Stored): { p?: 1 } =>
     (typeof body?.persistent === 'boolean' ? body.persistent : was?.p === 1) ? { p: 1 } : {}
 
+  /** Best effort: tells Cauthy a refresh token is no longer wanted. */
+  async function revoke(refreshToken: string): Promise<void> {
+    const form = new URLSearchParams({ client_id: clientId, token: refreshToken })
+    if (clientSecret) form.set('client_secret', clientSecret)
+    await doFetch(`${issuer}/v1/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form }).catch(() => undefined)
+  }
+
   /**
    * A link that requires a verified address lets nobody in on a token whose
    * person has not confirmed it, whatever Cauthy issued. The token itself
@@ -386,7 +393,11 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     if (typeof body?.access_token !== 'string' || typeof body?.refresh_token !== 'string') return null
     const who = await userinfo(body.access_token)
     if (who === null || who.u.id === '') return null
-    if (unverified(who.u)) throw new CauthyApiError(403, 'email_not_verified', 'Confirm your email address first.')
+    if (unverified(who.u)) {
+      // Cauthy just issued these tokens: the session they would have started never begins.
+      await revoke(body.refresh_token)
+      throw new CauthyApiError(403, 'email_not_verified', 'Confirm your email address first.')
+    }
     const lifetime = typeof body.expires_in === 'number' && body.expires_in > 0 ? body.expires_in : 300
     return { at: body.access_token, rt: body.refresh_token, exp: Math.floor(Date.now() / 1000) + lifetime, ...who, ...kindOf(body, was) }
   }
@@ -665,7 +676,16 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       redirect_uri: `${originOf(request)}${basePath}/callback`,
       code_verifier: flow.verifier,
     }, await passedOn(request))
-    const s = res.ok ? await stored(res.body) : null
+    let s: Stored | null
+    try {
+      s = res.ok ? await stored(res.body) : null
+    } catch (err) {
+      if (!(err instanceof CauthyApiError && err.code === 'email_not_verified')) throw err
+      // Back to the application's sign-in page with the reason, and the question forgotten.
+      const page = pages.signIn ?? '/'
+      return redirect(`${page}${page.includes('?') ? '&' : '?'}auth_error=email_not_verified`,
+        [writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
+    }
     if (s === null) return failed(request, 'exchange_failed')
     return redirect(flow.returnTo, [...(await write(request, s, had)), writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
   }
