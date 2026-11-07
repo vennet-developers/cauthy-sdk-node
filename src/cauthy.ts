@@ -1816,7 +1816,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   }
 
   async function protect(request: Request) {
-    const { value } = await read(request)
+    const read1 = await read(request)
+    // A session of a person the link does not let in (address not confirmed) is none.
+    const value = read1.value !== null && unverified(read1.value.u) ? null : read1.value
     if (value !== null && fresh(value)) return { session: toSession(value) }
     const url = new URL(request.url)
     const state = value === null ? 'none' : 'expired'

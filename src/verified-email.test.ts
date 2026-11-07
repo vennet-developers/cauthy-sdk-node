@@ -62,5 +62,9 @@ describe('a link that requires a verified address', () => {
     expect(await before.auth.getSession(before.browser.request('/api/auth/session'))).not.toBeNull()
     const answer = await after.handler(before.browser.request('/api/auth/session'))
     expect((await answer.json()).status).toBe('unauthenticated')
+    // protect() sends such a person to sign in, as it does nobody.
+    const guarded = await after.protect(before.browser.request('/books'))
+    expect(guarded.response?.headers.get('location')).toContain('/api/auth/login')
+    expect('session' in guarded).toBe(false)
   })
 })
