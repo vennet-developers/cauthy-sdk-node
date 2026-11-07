@@ -35,6 +35,7 @@ import {
   type SessionUser,
 } from './types'
 import { withoutTrailingSlashes } from './url'
+import { finish } from './protocol'
 
 /** What the session cookie holds. Short names: it rides every request. */
 interface Stored {
@@ -1656,7 +1657,16 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     return null
   }
 
+  /** Every answer as protocol version 1 sends it (protocol.ts); the published keys keep their cache. */
   async function handler(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const inside = url.pathname === basePath || url.pathname.startsWith(`${basePath}/`)
+    const route = inside ? withoutTrailingSlashes(url.pathname.slice(basePath.length)) || '/' : null
+    const published = pact !== undefined && url.pathname === contract?.jwksPath
+    return finish(await serve(request), route, published)
+  }
+
+  async function serve(request: Request): Promise<Response> {
     const url = new URL(request.url)
     if (pact && url.pathname === contract?.jwksPath && (request.method === 'GET' || request.method === 'HEAD')) return pact.jwks()
     if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) return new Response('Not found', { status: 404 })

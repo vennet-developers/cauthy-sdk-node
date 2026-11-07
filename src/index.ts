@@ -23,3 +23,4 @@ export { createSystem, CauthyApiError, type CauthySystem, type NewMember, type O
 export { connectSystem, type ConnectOptions, type Connected } from './connect'
 export { MIN_PASSWORD, DEFAULT_PASSWORD_POLICY, checkCode, checkEmail, checkName, checkNewPassword, checkPassword, describePasswordPolicy, explainPasswordProblems, passwordPolicyOf, passwordProblems, type AuthField, type FieldProblem, type PasswordClass, type PasswordLocale, type PasswordPolicy, type PasswordReason } from './validate'
 export { verifyToken, CauthyTokenError, type TokenIdentity, type VerifyTokenOptions } from './verify'
+export { PROTOCOL_VERSION, type NextStep } from './protocol'

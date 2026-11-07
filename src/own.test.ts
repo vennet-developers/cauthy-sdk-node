@@ -345,7 +345,7 @@ describe('an application that draws its own sign-in', () => {
     const { auth, browser, post } = setup({ mfa: true })
     const first = await post('/sign-in/email', { email: 'ana@acme.com', password: 'right-password' })
     const body = await first.text()
-    expect(JSON.parse(body)).toEqual({ status: 'mfa_required' })
+    expect(JSON.parse(body)).toEqual({ status: 'mfa_required', next: 'mfa' })
     expect(body + first.headers.getSetCookie().join()).not.toContain('mfa-secret-token')
     // A code with no first step behind it goes nowhere.
     const cold = await post('/sign-in/mfa', { code: '123456' })
@@ -364,10 +364,10 @@ describe('an application that draws its own sign-in', () => {
   it('says when the second step went by email, and mails the code again', async () => {
     const { browser, post } = setup({ mfaByEmail: true })
     const first = await post('/sign-in/email', { email: 'ana@acme.com', password: 'right-password' })
-    expect(await first.json()).toEqual({ status: 'mfa_required', method: 'email' })
+    expect(await first.json()).toEqual({ status: 'mfa_required', method: 'email', next: 'mfa' })
     browser.take(first)
     expect(await (await post('/sign-in/mfa/methods', {})).json()).toEqual({ status: 'ok', totp: false, phone: null, push: null, email: { to: 'a***@acme.com' } })
-    expect(await (await post('/sign-in/mfa/email', {})).json()).toEqual({ status: 'sent', sentTo: 'a***@acme.com' })
+    expect(await (await post('/sign-in/mfa/email', {})).json()).toEqual({ status: 'sent', sentTo: 'a***@acme.com', next: 'mfa' })
     expect((await (await setup({ mfaByEmail: true }).post('/sign-in/mfa/email', {})).json()).error.code).toBe('step_expired')
   })
 
@@ -375,7 +375,7 @@ describe('an application that draws its own sign-in', () => {
     const { browser, post } = setup({ mfa: true })
     browser.take(await post('/sign-in/email', { email: 'ana@acme.com', password: 'right-password' }))
     expect(await (await post('/sign-in/mfa/methods', {})).json()).toEqual({ status: 'ok', totp: false, phone: { number: '+57 ••• ••• 4567', channel: 'whatsapp' }, push: null, email: null })
-    expect(await (await post('/sign-in/mfa/send', {})).json()).toEqual({ status: 'sent', sentTo: '+57 ••• ••• 4567', channel: 'whatsapp' })
+    expect(await (await post('/sign-in/mfa/send', {})).json()).toEqual({ status: 'sent', sentTo: '+57 ••• ••• 4567', channel: 'whatsapp', next: 'mfa' })
     // Nobody waiting on a second step: nothing to send.
     const cold = setup({ mfa: true })
     expect((await (await cold.post('/sign-in/mfa/send', {})).json()).error.code).toBe('step_expired')
@@ -384,7 +384,7 @@ describe('an application that draws its own sign-in', () => {
   it('approves the second step on the phone: a push, its answer passed through as it comes, and the sign-in', async () => {
     const { auth, browser, post, request } = setup({ mfa: true, pushApproved: true })
     browser.take(await post('/sign-in/email', { email: 'ana@acme.com', password: 'right-password' }))
-    expect(await (await post('/sign-in/mfa/push', {})).json()).toEqual({ status: 'sent', number: 47 })
+    expect(await (await post('/sign-in/mfa/push', {})).json()).toEqual({ status: 'sent', number: 47, next: 'mfa' })
     const events = await request('GET', '/sign-in/mfa/push/events')
     expect(events.headers.get('content-type')).toBe('text/event-stream')
     expect(await events.text()).toContain('"status":"approved"')
@@ -424,7 +424,7 @@ describe('an application that draws its own sign-in', () => {
 
     const confirming = setup({ confirm: true })
     const waiting = await confirming.post('/sign-up/email', { email: 'bea@acme.com', password: 'right-password' })
-    expect(await waiting.json()).toEqual({ status: 'verification_required', email: 'bea@acme.com' })
+    expect(await waiting.json()).toEqual({ status: 'verification_required', email: 'bea@acme.com', next: 'verify_email' })
     expect(confirming.asked).toHaveLength(1) // no sign-in attempted for an account that cannot yet
 
     const taken = await open.post('/sign-up/email', { email: 'taken@acme.com', password: 'right-password' })
@@ -785,7 +785,7 @@ describe('what a mailed link opens', () => {
 
   it('signs a person in with the token of a sign-in link, and gives the browser no token', async () => {
     const { post, auth, browser } = setup({ pages })
-    expect(await (await post('/sign-in/magic-link', { email: 'ana@acme.com' })).json()).toEqual({ status: 'sent' })
+    expect(await (await post('/sign-in/magic-link', { email: 'ana@acme.com' })).json()).toEqual({ status: 'sent', next: 'code' })
     const res = await post('/sign-in/magic-link/verify', { token: 'link-token' })
     const body = await res.json()
     expect(body.status).toBe('signed_in')
@@ -876,7 +876,7 @@ describe('a workspace that asks for the Turnstile challenge', () => {
 describe('Google One Tap, on an application\'s own page', () => {
   it('gives the prompt its client and nonce, and signs in with what Google gave the page', async () => {
     const { post, browser, auth } = setup()
-    expect(await (await post('/sign-in/google-one-tap/begin', {})).json()).toEqual({ status: 'started', clientId: 'g-client.apps.googleusercontent.com', nonce: 'nonce-1' })
+    expect(await (await post('/sign-in/google-one-tap/begin', {})).json()).toEqual({ status: 'started', clientId: 'g-client.apps.googleusercontent.com', nonce: 'nonce-1', next: 'redirect' })
     const signed = await post('/sign-in/google-one-tap', { credential: 'google-id-token' })
     expect(await signed.json()).toMatchObject({ status: 'signed_in', session: { user: { email: 'ana@acme.com' } } })
     browser.take(signed)
@@ -1186,7 +1186,7 @@ describe('passkeys on the application\'s page', () => {
 
     const begun = await post('/sign-in/passkey/begin', {})
     const b = await begun.json()
-    expect(b).toEqual({ status: 'started', options: { challenge: 'Y2hhbGxlbmdl', rpId: 'acme.test', allowCredentials: [], userVerification: 'required' } })
+    expect(b).toEqual({ status: 'started', options: { challenge: 'Y2hhbGxlbmdl', rpId: 'acme.test', allowCredentials: [], userVerification: 'required' }, next: 'passkey' })
     expect(JSON.stringify(b)).not.toContain('ceremony-1')
     browser.take(begun)
 
@@ -1464,7 +1464,7 @@ describe('an invitation', () => {
   it('asks for the second step next when the account owes one, as a sign-in does', async () => {
     const { post, browser } = setup({ invitedMfa: true })
     const res = await post('/invitation/accept', { token: 'invite-token', password: 'a-good-password' })
-    expect(await res.json()).toEqual({ status: 'mfa_required' })
+    expect(await res.json()).toEqual({ status: 'mfa_required', next: 'mfa' })
     expect(res.headers.get('set-cookie')).toContain('cauthy_session_step')
     expect(res.headers.get('set-cookie')).not.toMatch(/cauthy_session=/)
     browser.take(res)
