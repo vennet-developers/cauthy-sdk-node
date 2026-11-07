@@ -95,6 +95,33 @@ describe('Cauthy\'s published keys', () => {
     await expect(verifyToken(token, { ...options(fetch), jwks: cold })).rejects.toBeInstanceOf(CauthyUnavailableError)
   })
 
+  it('are refused as a whole when two usable keys share a kid (K6), and the last good set is kept', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const good = JSON.parse(jwksBody) as { keys: Record<string, unknown>[] }
+      const doubled = JSON.stringify({ keys: [good.keys[0], { ...good.keys[0], n: 'different' }] })
+      // A copy that is not usable (it is for encryption) beside a usable one does not count as a duplicate.
+      const harmless = JSON.stringify({ keys: [good.keys[0], { ...good.keys[0], use: 'enc' }] })
+      let body = jwksBody
+      const answer = vi.fn(async () => new Response(body, { headers: { 'cache-control': 'max-age=100' } }))
+      const keys = remoteKeys(issuer, answer as never)
+      const opts = { ...options(answer as never), jwks: keys }
+      await verifyToken(token, opts)
+      body = doubled
+      vi.setSystemTime(Date.now() + 101_000)
+      await expect(verifyToken(token, { ...opts, now: new Date() })).resolves.toBeTruthy() // the old set stands
+      expect(answer).toHaveBeenCalledTimes(2)
+      body = harmless
+      vi.setSystemTime(Date.now() + 40_000)
+      await expect(verifyToken(token, { ...opts, now: new Date() })).resolves.toBeTruthy()
+      expect(answer).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+    const cold = remoteKeys(issuer, (async () => new Response(JSON.stringify({ keys: [...(JSON.parse(jwksBody).keys), ...(JSON.parse(jwksBody).keys)] }))) as never)
+    await expect(verifyToken(token, { ...options(fetch), jwks: cold })).rejects.toBeInstanceOf(CauthyUnavailableError)
+  })
+
   it('follow no redirect', async () => {
     const answer = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://elsewhere.test/jwks' } }))
     const err = await verifyToken(token, { ...options(answer as never), jwks: remoteKeys(issuer, answer as never) }).catch((e) => e)

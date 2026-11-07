@@ -123,6 +123,14 @@ export function remoteKeys(issuer: string, fetchKeys: typeof fetch = fetch): JWT
       const bytes = await readCapped(res, MAX_KEYS_BYTES)
       const parsed = JSON.parse(new TextDecoder().decode(bytes)) as JSONWebKeySet
       if (!parsed || !Array.isArray(parsed.keys)) throw new Error('not a key set')
+      // K6: two usable keys with one kid make the whole set untrustworthy.
+      const seen = new Set<string>()
+      for (const k of parsed.keys) {
+        const usable = k?.kty === 'RSA' && (k.use === undefined || k.use === 'sig') && (k.alg === undefined || k.alg === 'RS256')
+        if (!usable || typeof k.kid !== 'string') continue
+        if (seen.has(k.kid)) throw new Error(`two usable keys share the kid ${JSON.stringify(k.kid)}`)
+        seen.add(k.kid)
+      }
       set = createLocalJWKSet(parsed)
       const maxAge = /max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')
       // At least a minute: max-age=0 must not mean a fetch for every token.
