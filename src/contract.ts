@@ -149,6 +149,9 @@ export function readContract(options: ContractOptions): ResolvedContract {
   let tenantId: string
   let tenant: string
   if (UUID.test(named)) {
+    if (pinned !== '' && pinned.toLowerCase() !== named.toLowerCase()) {
+      throw new CauthyConfigError(`the link ${link} names the workspace ${named} and its tenant_id ${pinned} does not match: pull the graph again`)
+    }
     tenantId = named
     tenant = text((cauthy.tenants ?? []).find(t => t.id === named)?.slug)
     if (tenant === '') throw new CauthyConfigError(`the graph does not name the slug of the workspace ${named} that the link ${link} uses`)
@@ -170,6 +173,9 @@ export function readContract(options: ContractOptions): ResolvedContract {
 
   // system_proof says the whole of it; a graph from before it has only the boolean.
   const proof = text(signIn.system_proof)
+  if (signIn.system_proof !== undefined && proof !== 'off' && proof !== 'auto' && proof !== 'required') {
+    throw new CauthyConfigError(`the link ${link} has system_proof ${JSON.stringify(signIn.system_proof)}: it is off, auto or required. Update @cauthyhq/node, or pull the graph again`)
+  }
   const systemProof: ResolvedContract['systemProof'] = proof === 'off' || proof === 'auto' || proof === 'required'
     ? proof
     : signIn.require_system_proof === true ? 'required' : 'off'

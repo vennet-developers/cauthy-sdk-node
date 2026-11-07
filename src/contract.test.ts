@@ -348,6 +348,20 @@ describe('the link fields core-contracts added in November 2026', () => {
     expect(readContract({ graph: g, system: 'acme-crm' })).toMatchObject({ systemProof: 'required', requireSystemProof: true })
   })
 
+  it('refuses a system_proof value it does not know', () => {
+    const g = graph()
+    Object.assign(g.edges[0].sign_in, { system_proof: 'sometimes' })
+    expect(() => readContract({ graph: g, system: 'acme-crm' })).toThrow(/system_proof.*sometimes/)
+  })
+
+  it('refuses a workspace named by id and pinned to another id', () => {
+    const g = graph()
+    Object.assign(g.edges[0].identity, { tenant_id: '11111111-2222-4333-8444-555555555555' })
+    expect(() => readContract({ graph: g, system: 'acme-crm' })).toThrow(/tenant_id.*does not match/)
+    Object.assign(g.edges[0].identity, { tenant_id: TENANT })
+    expect(readContract({ graph: g, system: 'acme-crm' }).tenantId).toBe(TENANT)
+  })
+
   it('refuses a proof the link gives no identity to make', () => {
     const g = graph({ service: false })
     Object.assign(g.edges[0].sign_in, { system_proof: 'auto' })
