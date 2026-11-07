@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-12T12:00:00Z",
+  "body": "{\"id\":\"0d1f4c3e-6a51-4b7e-9d0a-2f6f0f3b8c11\",\"tenant_id\":\"adbc2bca-245a-40e7-9cc3-d1746e06fff8\",\"event\":\"organization.member_added\",\"data\":{\"id\":\"7c1e0d55-1f0b-4c0c-8a57-1d6c2f9b7e31\",\"type\":\"organization.member_added\",\"tenant_id\":\"adbc2bca-245a-40e7-9cc3-d1746e06fff8\",\"created_at\":\"2026-10-12T12:00:00Z\",\"user_id\":\"92ee788d-a44d-4a80-bda9-244001e6f61c\",\"actor_id\":\"11111111-2222-4333-8444-555555555555\",\"data\":{\"organization_id\":\"5f0c1a4e-9d2b-4c1e-8a57-0d6c2f9b7e31\",\"system\":\"books\",\"external_id\":\"ent-1\",\"user_id\":\"92ee788d-a44d-4a80-bda9-244001e6f61c\",\"email\":\"ana@acme.com\",\"role\":\"accountant\"}},\"created_at\":\"2026-10-12T12:00:00Z\"}",
+  "domain_issuer": "https://auth.example.com",
+  "domain_signature": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImtpZC0xIiwidHlwIjoiY2F1dGh5LXdlYmhvb2srand0In0.eyJhdWQiOiJodHRwczovL2FwcC5leGFtcGxlLmNvbS9hcGkvaG9va3MvY2F1dGh5IiwiYm9keV9zaGEyNTYiOiJGT1JmaUNrR2xtQmcwVXpxeVR2cm1Zbl9nQ1Fmc05sN0xLYUlDbmgtNWhZIiwiZG9tYWluX2lzcyI6Imh0dHBzOi8vYXV0aC5leGFtcGxlLmNvbSIsImV2dCI6Im9yZ2FuaXphdGlvbi5tZW1iZXJfYWRkZWQiLCJleHAiOjE3OTE4MDY3MDAsImlhdCI6MTc5MTgwNjQwMCwiaXNzIjoiaHR0cHM6Ly9pZC5leGFtcGxlLmNvbSIsImp0aSI6IjBkMWY0YzNlLTZhNTEtNGI3ZS05ZDBhLTJmNmYwZjNiOGMxMSIsInRpZCI6ImFkYmMyYmNhLTI0NWEtNDBlNy05Y2MzLWQxNzQ2ZTA2ZmZmOCJ9.nAqDGdTMKVDkRWMSMI7gH2bgdJot3zLgXgBR4O9T-hhXnAyJDG8uH6PLgEMhU8DcAjG_9oVVl_NsHY0cBXzKJSdLvtCnosJE4ajHEwZ9KbDX2zhMs3T10UhsBKraQIjdyAzxnWh3PaVQU4gq3pw8rt_KpAMPe-XvVIJRCv631GDbI2MB96ePBCojQIihAtb7ZkKBu5CWPPtsE-xmsku-hQ_LOGLi_SqxuF5nILRCfn_mzKKBgdPDeztklmTrdrty2qMAFtpLgf6rPkzPQMtmyx0jFBup_4J6OLqzhKPJgrgQSNRoNf8NunP_ne_smCJzmi8-x-_Yplu16fvsND9Sew",
+  "issuer": "https://id.example.com",
+  "jwks": {
+    "keys": [
+      {
+        "kty": "RSA",
+        "use": "sig",
+        "alg": "RS256",
+        "kid": "kid-1",
+        "n": "pItbt0JAWFhCA_97aKxJdLCVEMVQp5txIivDmZj6hxPv7LqumYdutFqd194DmSABd9QgYA4LNOq7ADxJBjsiYSi3Ck0U4__444eROUcLy4CvzSwD15fmKbhCfU_bwJJ29zjl1t7fpZvpd_E-xhiPRp6NMrMB7SUUnWdQ5SUYFlAeTU2vdaYqkP5w5nmTJT7yuRTowgKn53VZbiLXKFCe1pmYUdXxkwIs6BvCS2wZPFy5uFfzt-O1fVfA3zoGCeMoLphBe27TZZGWdqdbKepSqkvjQq9vS7DgVTPpy5u-pxU0ZiVckNrQmE8AFoSUg2LYzzk8rbT1J-QQFshhmO7B-Q",
+        "e": "AQAB"
+      }
+    ]
+  },
+  "signature": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImtpZC0xIiwidHlwIjoiY2F1dGh5LXdlYmhvb2srand0In0.eyJhdWQiOiJodHRwczovL2FwcC5leGFtcGxlLmNvbS9hcGkvaG9va3MvY2F1dGh5IiwiYm9keV9zaGEyNTYiOiJGT1JmaUNrR2xtQmcwVXpxeVR2cm1Zbl9nQ1Fmc05sN0xLYUlDbmgtNWhZIiwiZXZ0Ijoib3JnYW5pemF0aW9uLm1lbWJlcl9hZGRlZCIsImV4cCI6MTc5MTgwNjcwMCwiaWF0IjoxNzkxODA2NDAwLCJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwianRpIjoiMGQxZjRjM2UtNmE1MS00YjdlLTlkMGEtMmY2ZjBmM2I4YzExIiwidGlkIjoiYWRiYzJiY2EtMjQ1YS00MGU3LTljYzMtZDE3NDZlMDZmZmY4In0.i5DZ_lCSwA7Bs97HqhcUNudl31u9Hjb4DdSDUiYyvzri2Qc-7lMHBqcP8R4iTvOVTDtU8ulZAuR-LmHE0EmKT46gTtDZxJzk8f8GY7SD2OG3nunHv_Vktm8aJweCTreLK0HO7qbmiyS-4Iv5p2y60zaFGd2nySfxFsuwW5BnY8OkXSCar6Vw5n-EkhtD5-_qlRI3Z6QlXaS8WhdtycHMLMW_cAAKbsnqdNV1V27C2WQac4ABC1PHUFBvTWVnw7Y4ED4EiX94J8RYmiwaUr9YeoLsshBv5lxejaodKWIrH7ho1wDXKozhp2rD39kUyUVVAW_-bjVNg-yMFnjqoKPpCQ",
+  "url": "https://app.example.com/api/hooks/cauthy"
+}
