@@ -10,6 +10,7 @@
   },
   "homepage": "https://github.com/vennet-developers/cauthy-sdk-node#readme",
   "bugs": "https://github.com/vennet-developers/cauthy-sdk-node/issues",
+  "type": "commonjs",
   "cauthy": {
     "protocol": 1
   },
