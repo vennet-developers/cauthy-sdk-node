@@ -179,4 +179,4 @@ Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
 ## License
 
-See [LICENSE](LICENSE).
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
