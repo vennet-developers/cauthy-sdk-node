@@ -3,7 +3,7 @@
 
 export class FakeCauthy {
   readonly issuer = 'https://id.test'
-  users = new Map<string, { sub: string; email: string; name: string; active: boolean; restricted: boolean; anonymous?: boolean }>()
+  users = new Map<string, { sub: string; email: string; name: string; active: boolean; restricted: boolean; anonymous?: boolean; verified?: boolean }>()
   codes = new Map<string, { sub: string; challenge: string; redirectUri: string }>()
   refresh = new Map<string, string>() // refresh token → sub
   access = new Map<string, string>() // access token → sub
@@ -82,7 +82,7 @@ export class FakeCauthy {
     const user = sub ? this.users.get(sub) : undefined
     if (url.pathname === '/v1/oauth/userinfo') {
       if (!user) return reply(401, {})
-      return reply(200, { sub: user.sub, tid: 't1', email: user.email, name: user.name, email_verified: !user.anonymous, restricted: user.restricted, roles: ['member'], ...(user.anonymous ? { anonymous: true } : {}) })
+      return reply(200, { sub: user.sub, tid: 't1', email: user.email, name: user.name, email_verified: user.verified ?? !user.anonymous, restricted: user.restricted, roles: ['member'], ...(user.anonymous ? { anonymous: true } : {}) })
     }
     const asking = url.pathname.match(/^\/v1\/oauth\/organizations\/([^/]+)\/check$/)
     if (asking && init?.method === 'POST') {

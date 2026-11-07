@@ -361,11 +361,19 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   const kindOf = (body: any, was?: Stored): { p?: 1 } =>
     (typeof body?.persistent === 'boolean' ? body.persistent : was?.p === 1) ? { p: 1 } : {}
 
+  /**
+   * A link that requires a verified address lets nobody in on a token whose
+   * person has not confirmed it, whatever Cauthy issued. The token itself
+   * does not say (verification/rules.md), so this reads the user it came with.
+   */
+  const unverified = (u: SessionUser) => contract?.requireVerifiedEmail === true && !u.emailVerified
+
   /** What Cauthy's answer to a token request becomes in the cookie. */
   async function stored(body: any, was?: Stored): Promise<Stored | null> {
     if (typeof body?.access_token !== 'string' || typeof body?.refresh_token !== 'string') return null
     const who = await userinfo(body.access_token)
     if (who === null || who.u.id === '') return null
+    if (unverified(who.u)) throw new CauthyApiError(403, 'email_not_verified', 'Confirm your email address first.')
     const lifetime = typeof body.expires_in === 'number' && body.expires_in > 0 ? body.expires_in : 300
     return { at: body.access_token, rt: body.refresh_token, exp: Math.floor(Date.now() / 1000) + lifetime, ...who, ...kindOf(body, was) }
   }
@@ -403,7 +411,13 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       running = (async (): Promise<Stored | 'ended' | 'unreachable'> => {
         const res = await token({ grant_type: 'refresh_token', refresh_token: rt })
         if (!res.ok) return res.ended ? 'ended' : 'unreachable'
-        const next = await stored(res.body, was)
+        let next: Stored | null
+        try {
+          next = await stored(res.body, was)
+        } catch (err) {
+          if (err instanceof CauthyApiError && err.code === 'email_not_verified') return 'ended'
+          throw err
+        }
         if (next !== null) return next
         // Renewed, but who it is could not be read just now. The new tokens
         // are kept all the same — the old refresh token is spent, and losing
@@ -432,6 +446,8 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       // A cookie this key did not make (a rotated secret, a tampered value) is cleared.
       return { session: null, status: 'unauthenticated', cookies: present ? clearParts(cookieName, attrs(request, 0), had) : [] }
     }
+    // A session made before the link required a verified address does not outlive the requirement.
+    if (unverified(value.u)) return { session: null, status: 'unauthenticated', cookies: clearParts(cookieName, attrs(request, 0), had) }
     if (fresh(value)) return { session: toSession(value), status: 'authenticated', cookies: [] }
 
     const renewed = await renew(value)
@@ -447,7 +463,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   async function getSession(request: Request, responseHeaders?: Headers): Promise<Session | null> {
     if (responseHeaders === undefined) {
       const { value } = await read(request)
-      return value !== null && fresh(value) ? toSession(value) : null
+      return value !== null && fresh(value) && !unverified(value.u) ? toSession(value) : null
     }
     const r = await resolve(request)
     for (const c of r.cookies) responseHeaders.append('set-cookie', c)
@@ -456,7 +472,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   async function status(request: Request): Promise<SessionStatus> {
     const { value } = await read(request)
-    if (value === null) return 'unauthenticated'
+    if (value === null || unverified(value.u)) return 'unauthenticated'
     return fresh(value) ? 'authenticated' : 'expired'
   }
 
@@ -1699,7 +1715,16 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     const inside = url.pathname === basePath || url.pathname.startsWith(`${basePath}/`)
     const route = inside ? withoutTrailingSlashes(url.pathname.slice(basePath.length)) || '/' : null
     const published = pact !== undefined && url.pathname === contract?.jwksPath
-    return finish(await serve(request), route, published)
+    try {
+      return finish(await serve(request), route, published)
+    } catch (err) {
+      // A sign-in that Cauthy completed for an address not yet confirmed, on a link that requires it.
+      if (!(err instanceof CauthyApiError && err.code === 'email_not_verified')) throw err
+      const wantsPage = request.method === 'GET' && (request.headers.get('sec-fetch-mode') ?? 'navigate') === 'navigate'
+      return finish(wantsPage
+        ? new Response('Sign-in refused (email_not_verified). Confirm your email address first.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+        : problem(403, 'email_not_verified', 'Confirm your email address first.'), route)
+    }
   }
 
   async function serve(request: Request): Promise<Response> {

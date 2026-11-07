@@ -40,10 +40,26 @@ describe('an access token', () => {
     expect((await verifyToken(await sign(person), { ...options, audience: 'cauthy-api', tenantId })).tenantId).toBe(tenantId)
   })
 
-  it('says when it is a system and not a person', async () => {
-    const who = await verifyToken(await sign({ sub: 'client_1', tid: tenantId, roles: [], sys: 'books' }), options)
+  // verification/rules.md of cauthy-sdk-spec: R13 (system_token) and R14 (anonymous_token).
+  it('refuses a system\'s own token where a person is expected (R13)', async () => {
+    const token = await sign({ sub: 'client_1', tid: tenantId, roles: [], sys: 'books' })
+    await expect(verifyToken(token, options)).rejects.toMatchObject({ reason: 'system_token' })
+    // Whatever the value of sys.
+    await expect(verifyToken(await sign({ sub: 'client_1', tid: tenantId, sys: '' }), options)).rejects.toMatchObject({ reason: 'system_token' })
+  })
+
+  it('says when it is a system and not a person, for an endpoint that takes systems', async () => {
+    const who = await verifyToken(await sign({ sub: 'client_1', tid: tenantId, roles: [], sys: 'books' }), { ...options, allowSystem: true })
     expect(who.system).toBe('books')
     expect(who.email).toBeUndefined()
+  })
+
+  it('refuses a guest\'s token unless guests are allowed (R14)', async () => {
+    const token = await sign({ sub: person.sub, tid: tenantId, roles: [], anon: true })
+    await expect(verifyToken(token, options)).rejects.toMatchObject({ reason: 'anonymous_token' })
+    const who = await verifyToken(token, { ...options, allowAnonymous: true })
+    expect(who).toMatchObject({ userId: person.sub, anonymous: true })
+    expect((await verifyToken(await sign(person), options)).anonymous).toBeUndefined()
   })
 
   it('is refused when it is not Cauthy\'s, not current, or not for here', async () => {

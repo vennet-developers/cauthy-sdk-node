@@ -18,8 +18,10 @@ export interface TokenIdentity {
   tenantId: string
   email?: string
   roles: string[]
-  /** Set when the token is a system's own and not a person's. */
+  /** Set when the token is a system's own and not a person's (only with `allowSystem`). */
   system?: string
+  /** Set when the token is a guest's (only with `allowAnonymous`). */
+  anonymous?: true
   /** UTC, ISO 8601. */
   expiresAt: string
   /** The token as it arrived, to pass on. */
@@ -44,6 +46,14 @@ export interface VerifyTokenOptions {
   jwks?: JWTVerifyGetKey
   /** The moment to verify at. Default: now. */
   now?: Date
+  /**
+   * Accept a system's own token (a `sys` claim) too: for an endpoint another
+   * system calls. Default: false, so a system's token never stands for a
+   * person (rule R13 of the spec's verification/rules.md).
+   */
+  allowSystem?: boolean
+  /** Accept a guest's token (`anon: true`). Default: false (rule R14). */
+  allowAnonymous?: boolean
 }
 
 const keys = new Map<string, JWTVerifyGetKey>()
@@ -98,12 +108,16 @@ export async function verifyToken(from: string | Request | Headers, options: Ver
   const wanted = options.tenantId ?? env('CAUTHY_TENANT_ID')
   if (wanted && tenantId !== wanted) throw new CauthyTokenError('issued for another workspace')
 
+  if (claims.sys !== undefined && !options.allowSystem) throw new CauthyTokenError('system_token')
+  if (claims.anon === true && !options.allowAnonymous) throw new CauthyTokenError('anonymous_token')
+
   return {
     userId: String(claims.sub),
     tenantId,
     ...(typeof claims.email === 'string' && claims.email !== '' ? { email: claims.email } : {}),
     roles: Array.isArray(claims.roles) ? claims.roles.filter((r): r is string => typeof r === 'string') : [],
     ...(typeof claims.sys === 'string' && claims.sys !== '' ? { system: claims.sys } : {}),
+    ...(claims.anon === true ? { anonymous: true as const } : {}),
     expiresAt: new Date((claims.exp as number) * 1000).toISOString(),
     token,
   }
