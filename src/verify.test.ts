@@ -1,17 +1,18 @@
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { CauthyTokenError, verifyToken } from './verify'
+import { CauthyConfigError } from './types'
+import { CauthyTokenError, createTokenVerifier, verifyToken } from './verify'
 
 const issuer = 'https://cauthy.example.com'
 const tenantId = 'adbc2bca-245a-40e7-9cc3-d1746e06fff8'
 let sign: (claims: Record<string, unknown>, over?: { issuer?: string; expiresIn?: string; key?: CryptoKey }) => Promise<string>
-let options: { issuer: string; jwks: ReturnType<typeof createLocalJWKSet> }
+let options: { issuer: string; audience: string; tenantId: string; jwks: ReturnType<typeof createLocalJWKSet> }
 let stranger: CryptoKey
 
 beforeAll(async () => {
   const pair = await generateKeyPair('RS256')
   stranger = (await generateKeyPair('RS256')).privateKey as CryptoKey
-  options = { issuer, jwks: createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k1', alg: 'RS256' }] }) }
+  options = { issuer, audience: 'cauthy-api', tenantId, jwks: createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k1', alg: 'RS256' }] }) }
   sign = (claims, over = {}) =>
     new SignJWT(claims)
       .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
@@ -42,14 +43,14 @@ describe('an access token', () => {
 
   // verification/rules.md of cauthy-sdk-spec: R13 (system_token) and R14 (anonymous_token).
   it('refuses a system\'s own token where a person is expected (R13)', async () => {
-    const token = await sign({ sub: 'client_1', tid: tenantId, roles: [], sys: 'books' })
+    const token = await sign({ sub: '5b0b7d1e-3c41-4f8a-9d55-0a1f6c2e8b73', tid: tenantId, roles: [], sys: 'books' })
     await expect(verifyToken(token, options)).rejects.toMatchObject({ reason: 'system_token' })
     // Whatever the value of sys.
-    await expect(verifyToken(await sign({ sub: 'client_1', tid: tenantId, sys: '' }), options)).rejects.toMatchObject({ reason: 'system_token' })
+    await expect(verifyToken(await sign({ sub: '5b0b7d1e-3c41-4f8a-9d55-0a1f6c2e8b73', tid: tenantId, sys: '' }), options)).rejects.toMatchObject({ reason: 'system_token' })
   })
 
   it('says when it is a system and not a person, for an endpoint that takes systems', async () => {
-    const who = await verifyToken(await sign({ sub: 'client_1', tid: tenantId, roles: [], sys: 'books' }), { ...options, allowSystem: true })
+    const who = await verifyToken(await sign({ sub: '5b0b7d1e-3c41-4f8a-9d55-0a1f6c2e8b73', tid: tenantId, roles: [], sys: 'books' }), { ...options, allowSystem: true })
     expect(who.system).toBe('books')
     expect(who.email).toBeUndefined()
   })
@@ -60,6 +61,24 @@ describe('an access token', () => {
     const who = await verifyToken(token, { ...options, allowAnonymous: true })
     expect(who).toMatchObject({ userId: person.sub, anonymous: true })
     expect((await verifyToken(await sign(person), options)).anonymous).toBeUndefined()
+  })
+
+  it('does not start without an audience or a workspace, or with a bad one', () => {
+    const { audience: _a, tenantId: _t, ...bare } = options
+    expect(() => createTokenVerifier({ ...bare, tenantId })).toThrow(CauthyConfigError)
+    expect(() => createTokenVerifier({ ...bare, audience: 'cauthy-api' })).toThrow(/tenantId/)
+    expect(() => createTokenVerifier({ ...options, tenantId: '00000000-0000-0000-0000-000000000000' })).toThrow(/nil UUID/)
+    expect(() => createTokenVerifier({ ...options, tenantId: tenantId.toUpperCase() })).toThrow(/lowercase UUID/)
+    expect(() => createTokenVerifier({ ...options, leeway: 61 })).toThrow(/leeway/)
+    expect(() => createTokenVerifier({ ...options, issuer: 'http://cauthy.example.com' })).toThrow(/https/)
+    expect(() => createTokenVerifier({ ...options })).not.toThrow()
+  })
+
+  it('names why it refuses, with the spec\'s codes', async () => {
+    await expect(verifyToken(await sign(person), { ...options, audience: 'another-api' })).rejects.toMatchObject({ reason: 'wrong_audience' })
+    await expect(verifyToken(await sign(person, { key: stranger }), options)).rejects.toMatchObject({ reason: 'bad_signature' })
+    await expect(verifyToken('x'.repeat(8193), options)).rejects.toMatchObject({ reason: 'too_large' })
+    await expect(verifyToken('', options)).rejects.toMatchObject({ reason: 'no_token' })
   })
 
   it('is refused when it is not Cauthy\'s, not current, or not for here', async () => {

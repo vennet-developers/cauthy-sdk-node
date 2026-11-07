@@ -116,6 +116,7 @@
     "check:fixtures": "sh scripts/check-fixtures.sh",
     "check:package": "sh scripts/check-package.sh",
     "conformance": "sh scripts/conformance.sh",
+    "vectors": "sh scripts/vectors.sh",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {

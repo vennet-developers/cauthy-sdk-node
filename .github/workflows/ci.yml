@@ -48,6 +48,10 @@ jobs:
           SPEC_DIR: ${{ github.workspace }}/spec
           LEVEL: strict
           REPORT: ${{ runner.temp }}/conformance-strict.json
+      - name: token vectors, every one must agree
+        run: npm run vectors
+        env:
+          SPEC_DIR: ${{ github.workspace }}/spec
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

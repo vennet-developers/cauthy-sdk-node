@@ -38,6 +38,10 @@ jobs:
         env:
           SPEC_DIR: ${{ github.workspace }}/spec
           LEVEL: strict
+      - name: token vectors, every one must agree
+        run: npm run vectors
+        env:
+          SPEC_DIR: ${{ github.workspace }}/spec
       - run: npm run check:package
       - run: npm publish --provenance --access public
         env:
