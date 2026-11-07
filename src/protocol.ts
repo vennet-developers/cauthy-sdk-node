@@ -4,8 +4,20 @@
 
 export const PROTOCOL_VERSION = '1'
 
-/** What the screen does after a sign-in answer. */
-export type NextStep = 'done' | 'mfa' | 'verify_email' | 'code' | 'passkey' | 'redirect'
+/**
+ * What the screen does after a sign-in answer:
+ *
+ * - `done`: signed in; go on.
+ * - `mfa`: ask for the second step (the code, or the push's approval).
+ * - `verify_email`: the address must be confirmed first.
+ * - `code`: a code (or link) was mailed; ask for the code.
+ * - `passkey`: run the passkey ceremony with the options in the answer.
+ * - `one_tap`: show Google's prompt with the client and nonce in the answer,
+ *   then post the credential it gives.
+ * - `redirect`: go to the URL the answer carries. Reserved for answers that
+ *   have one; no route of version 1 answers it yet.
+ */
+export type NextStep = 'done' | 'mfa' | 'verify_email' | 'code' | 'passkey' | 'one_tap' | 'redirect'
 
 /** The routes whose answers are sign-in answers (auth-bff.md, "Sign-in answers"). */
 export const SIGN_IN_ROUTES: ReadonlySet<string> = new Set([
@@ -23,8 +35,8 @@ export function nextOf(route: string, status: unknown): NextStep | undefined {
     case 'verification_required': return 'verify_email'
     // A code went out: the second step's, or the one that comes with a sign-in link.
     case 'sent': return route.startsWith('/sign-in/mfa') ? 'mfa' : 'code'
-    // A ceremony began: Google's prompt takes the person away and back; a passkey stays here.
-    case 'started': return route === '/sign-in/google-one-tap/begin' ? 'redirect' : 'passkey'
+    // A ceremony began: the page shows Google's prompt and posts what it gives, or runs the passkey's.
+    case 'started': return route === '/sign-in/google-one-tap/begin' ? 'one_tap' : 'passkey'
     default: return undefined
   }
 }

@@ -387,6 +387,8 @@ describe('an application that draws its own sign-in', () => {
     expect(await (await post('/sign-in/mfa/push', {})).json()).toEqual({ status: 'sent', number: 47, next: 'mfa' })
     const events = await request('GET', '/sign-in/mfa/push/events')
     expect(events.headers.get('content-type')).toBe('text/event-stream')
+    expect(events.headers.get('cauthy-protocol')).toBe('1')
+    expect(events.headers.get('cache-control')).toBe('no-cache, no-store')
     expect(await events.text()).toContain('"status":"approved"')
     const done = await post('/sign-in/mfa/push/finish', {})
     expect((await done.json()).status).toBe('signed_in')
@@ -876,7 +878,7 @@ describe('a workspace that asks for the Turnstile challenge', () => {
 describe('Google One Tap, on an application\'s own page', () => {
   it('gives the prompt its client and nonce, and signs in with what Google gave the page', async () => {
     const { post, browser, auth } = setup()
-    expect(await (await post('/sign-in/google-one-tap/begin', {})).json()).toEqual({ status: 'started', clientId: 'g-client.apps.googleusercontent.com', nonce: 'nonce-1', next: 'redirect' })
+    expect(await (await post('/sign-in/google-one-tap/begin', {})).json()).toEqual({ status: 'started', clientId: 'g-client.apps.googleusercontent.com', nonce: 'nonce-1', next: 'one_tap' })
     const signed = await post('/sign-in/google-one-tap', { credential: 'google-id-token' })
     expect(await signed.json()).toMatchObject({ status: 'signed_in', session: { user: { email: 'ana@acme.com' } } })
     browser.take(signed)

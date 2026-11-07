@@ -253,6 +253,9 @@ function byContract(given: CauthyOptions): { contract: ResolvedContract; root: s
   return { contract, root, previous: given.rootKeyPrevious ?? env('PACT_ROOT_KEY_PREVIOUS') }
 }
 
+/** requestHeader: 'warn' says so once per process, whatever number of Cauthy instances run in it. */
+let toldOfHeader = false
+
 export function createCauthy(given: CauthyOptions = {}): Cauthy {
   const pacted = given.contract ? byContract(given) : undefined
   const contract = pacted?.contract
@@ -767,7 +770,6 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   let explained = false
 
-  let toldOfHeader = false
   /**
    * A mutation carries X-Cauthy-Request: 1, which another site cannot add
    * without CORS: the answer to send instead, or null when it may go on.
@@ -1724,7 +1726,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     const url = new URL(request.url)
     const inside = url.pathname === basePath || url.pathname.startsWith(`${basePath}/`)
     const route = inside ? withoutTrailingSlashes(url.pathname.slice(basePath.length)) || '/' : null
-    const published = pact !== undefined && url.pathname === contract?.jwksPath
+    const published = pact !== undefined && url.pathname === contract?.jwksPath && (request.method === 'GET' || request.method === 'HEAD')
     try {
       return finish(await serve(request), route, published)
     } catch (err) {

@@ -138,6 +138,15 @@ describe('running by contract', () => {
     expect((await auth.getSession(browser.request('/')))?.user.id).toBe('u1')
   })
 
+  it('keeps the cache of the published keys for GET and HEAD only', async () => {
+    const { auth } = contracted()
+    const url = 'https://app.test/.well-known/pact-jwks.json'
+    expect((await auth.handler(new Request(url, { method: 'HEAD' }))).headers.get('cache-control')).toContain('max-age=300')
+    const post = await auth.handler(new Request(url, { method: 'POST', body: '{}' }))
+    expect(post.status).toBe(404)
+    expect(post.headers.get('cache-control')).toBe('no-store')
+  })
+
   it('makes its key once, serves its public half at its jwks_url and proves itself with it', async () => {
     const { auth, store, assertions, statusAsked } = contracted()
     const res = await auth.handler(new Request('https://app.test/.well-known/pact-jwks.json'))

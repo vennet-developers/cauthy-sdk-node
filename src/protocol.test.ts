@@ -12,7 +12,7 @@ describe('the step after a sign-in answer', () => {
     ['/sign-in/mfa/send', 'sent', 'mfa'],
     ['/sign-in/mfa/push', 'sent', 'mfa'],
     ['/sign-in/passkey/begin', 'started', 'passkey'],
-    ['/sign-in/google-one-tap/begin', 'started', 'redirect'],
+    ['/sign-in/google-one-tap/begin', 'started', 'one_tap'],
   ])('%s answering %s is followed by %s', (route, status, next) => {
     expect(nextOf(route, status)).toBe(next)
   })

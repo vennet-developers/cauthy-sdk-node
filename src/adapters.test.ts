@@ -166,6 +166,23 @@ describe.each(Object.keys(frameworks))('with %s', (name) => {
     expect(cauthy.calls.length).toBe(calls)
   })
 
+  it('keeps the protocol\'s headers on what the adapter writes back', async () => {
+    const { call } = await setup()
+    for (const path of ['/api/auth/session', '/api/auth/nope']) {
+      const res = await call(path)
+      expect(res.headers.get('cauthy-protocol')).toBe('1')
+      expect(res.headers.get('cache-control')).toContain('no-store')
+    }
+    const refused = await call('/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'http://app.test' },
+      body: '{}',
+    })
+    expect(refused.status).toBe(403)
+    expect(refused.headers.get('cauthy-protocol')).toBe('1')
+    expect((await refused.json()).error.code).toBe('csrf_required')
+  })
+
   it('carries a form to the application\'s own sign-in screen, whole', async () => {
     const { call, sent } = await setup()
     const res = await call('/api/auth/sign-in/email', {
