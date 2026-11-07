@@ -1,4 +1,4 @@
-// Copied from cauthy-auth 0.42 so the tests can drive the server the way a
+// Copied from @cauthyhq/node 0.42 so the tests can drive the server the way a
 // browser does. Not published: the browser client ships in @cauthyhq/js.
 
 // The application's own sign-in screens, in the browser.
@@ -440,7 +440,7 @@ export interface AuthClient {
      * `returnTo`: then the answer is `redirected`. `cancelled`: the person
      * closed the browser's prompt. `email`, when the person typed it: the
      * browser is told which passkeys are theirs, so a security key that did
-     * not keep its passkey (one made before cauthy-auth 0.18.0) is found too.
+     * not keep its passkey (one made before @cauthyhq/node 0.18.0) is found too.
      */
     passkey(options?: { returnTo?: string; locale?: string; email?: string; remember?: boolean }): Promise<AuthResult<'signed_in', { session: PublicSession }> | AuthResult<'redirected'>>
     /**

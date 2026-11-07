@@ -13,7 +13,7 @@ import { withoutTrailingSlashes } from './url'
 
 /** What createCauthy is given to run by contract. */
 export interface ContractOptions {
-  /** The context graph, as `cauthy-auth contracts pull` writes it (contracts/graph.json). */
+  /** The context graph, as `cauthy contracts pull` writes it (contracts/graph.json). */
   graph: unknown
   /** This application's system in the graph: `"acme-crm"`. */
   system: string
@@ -114,7 +114,7 @@ export function readContract(options: ContractOptions): ResolvedContract {
     ? (options.graph as { default: unknown }).default
     : options.graph) as { nodes?: GraphNode[]; edges?: GraphEdge[] } | null
   if (!graph || !Array.isArray(graph.edges) || !Array.isArray(graph.nodes)) {
-    throw new CauthyConfigError('contract.graph is not a context graph: pass the graph.json that `cauthy-auth contracts pull` writes')
+    throw new CauthyConfigError('contract.graph is not a context graph: pass the graph.json that `cauthy contracts pull` writes')
   }
   const node = (id: string) => graph.nodes?.find(n => n.type === 'system' && n.id === id)
   const own = node(system)

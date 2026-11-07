@@ -78,7 +78,7 @@ export interface CauthyOptions {
    *   createCauthy({ contract: { graph, system: 'acme-crm' }, keys: postgresKeyStore(query) })
    */
   contract?: import('./contract').ContractOptions
-  /** Where the application keeps its own key, with a contract (cauthy-auth/keys). */
+  /** Where the application keeps its own key, with a contract (@cauthyhq/node/keys). */
   keys?: import('./keys').KeyStore
   /**
    * The one secret of a contracted application: every key it needs is
@@ -222,7 +222,7 @@ export type SessionStatus =
 
 export class CauthyConfigError extends Error {
   constructor(message: string) {
-    super(`cauthy-auth: ${message}`)
+    super(`@cauthyhq/node: ${message}`)
     this.name = 'CauthyConfigError'
   }
 }

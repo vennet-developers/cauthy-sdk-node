@@ -538,7 +538,7 @@ export function themeFromCss(css: string | string[], options: CssThemeOptions = 
 // ── On the application's own screens ───────────────────────────────────────
 
 /**
- * A theme as the CSS variables of `cauthy-auth/styles.css` (`--cauthy-*`), for
+ * A theme as the CSS variables of `@cauthyhq/node/styles.css` (`--cauthy-*`), for
  * the forms an application shows on its own pages. The page's own background,
  * the layout and the words are Cauthy's pages' matter, and left out.
  */
@@ -628,7 +628,7 @@ export async function pushTheme(o: PushThemeOptions): Promise<void> {
   const tenant = o.tenant ?? env('CAUTHY_TENANT') ?? ''
   const token = o.token ?? env('CAUTHY_TOKEN') ?? ''
   for (const [name, v] of Object.entries({ CAUTHY_ISSUER: issuer, CAUTHY_CLIENT_ID: clientId, CAUTHY_TENANT: tenant, CAUTHY_TOKEN: token })) {
-    if (v === '') throw new Error(`cauthy-auth: ${name} is required to push a theme`)
+    if (v === '') throw new Error(`@cauthyhq/node: ${name} is required to push a theme`)
   }
   const res = await (o.fetch ?? fetch)(`${issuer}/v1/oauth/clients/${encodeURIComponent(clientId)}/theme`, {
     method: 'PUT',
@@ -637,6 +637,6 @@ export async function pushTheme(o: PushThemeOptions): Promise<void> {
   })
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { errors?: { message?: string }[] } | null
-    throw new Error(`cauthy-auth: Cauthy refused the theme (${res.status}): ${body?.errors?.[0]?.message ?? res.statusText}`)
+    throw new Error(`@cauthyhq/node: Cauthy refused the theme (${res.status}): ${body?.errors?.[0]?.message ?? res.statusText}`)
   }
 }

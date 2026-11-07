@@ -236,7 +236,7 @@ function byContract(given: CauthyOptions): { contract: ResolvedContract; root: s
   const root = given.rootKey ?? env('PACT_ROOT_KEY') ?? ''
   if (root === '') throw new CauthyConfigError('rootKey (PACT_ROOT_KEY) is required with a contract: 32 random bytes, e.g. openssl rand -base64 32')
   if (contract.serviceClientId && !given.keys) {
-    throw new CauthyConfigError(`the link ${contract.link} gives ${contract.system} its own identity: pass keys, where its key is kept (cauthy-auth/keys)`)
+    throw new CauthyConfigError(`the link ${contract.link} gives ${contract.system} its own identity: pass keys, where its key is kept (@cauthyhq/node/keys)`)
   }
   return { contract, root, previous: given.rootKeyPrevious ?? env('PACT_ROOT_KEY_PREVIOUS') }
 }
@@ -457,7 +457,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     if (hit && Date.now() - hit.at < ORGANIZATIONS_TTL_MS) return hit.value
     const url = `${issuer}/v1/oauth/organizations${system ? `?system=${encodeURIComponent(system)}` : ''}`
     const res = await doFetch(url, { headers: { authorization: `Bearer ${session.accessToken}` } })
-    if (!res.ok) throw new Error(`cauthy-auth: reading organizations: ${res.status}`)
+    if (!res.ok) throw new Error(`@cauthyhq/node: reading organizations: ${res.status}`)
     const body = (await res.json()) as { data?: Record<string, any>[] }
     const value = (body.data ?? []).map(
       (o): SessionOrganization => ({
@@ -739,7 +739,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       // through a proxy, not another site: say so once, where it can be fixed.
       if (!explained && hostOf(origin) === new URL(own).hostname) {
         explained = true
-        console.warn(`cauthy-auth: refused a request from ${origin} as cross_site: this application sees itself as ${own}. ` +
+        console.warn(`@cauthyhq/node: refused a request from ${origin} as cross_site: this application sees itself as ${own}. ` +
           'Behind a proxy? Set CAUTHY_BASE_URL (or baseURL) to the public origin.')
       }
       return false
@@ -905,7 +905,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       route === '/sign-in/sso' || route === '/sign-in/sso/discover' || route === '/sso/callback'
     if (!own) return null
     if (tenant === '') {
-      return problem(500, 'not_configured', 'cauthy-auth: tenant (CAUTHY_TENANT) is required for the application\'s own sign-in screens')
+      return problem(500, 'not_configured', '@cauthyhq/node: tenant (CAUTHY_TENANT) is required for the application\'s own sign-in screens')
     }
 
     // How the forms look, as a person set it in Cauthy's dashboard. Kept a
@@ -1619,7 +1619,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     if (route === '/sign-in/magic-link') {
       const bad = checkEmail(b.email)
       if (bad) return invalid(bad)
-      if (pages.signIn === undefined) return problem(500, 'not_configured', 'cauthy-auth: pages.signIn is required for sign-in links: it is the page the link opens')
+      if (pages.signIn === undefined) return problem(500, 'not_configured', '@cauthyhq/node: pages.signIn is required for sign-in links: it is the page the link opens')
       // The same answer whether or not the address has an account. With
       // create, an address with none gets one when the link or code is used
       // (if the workspace accepts new accounts): one screen for both.
@@ -1726,7 +1726,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       return json({ status: 'decided', ...r }, 200, asker.headers)
     } catch (e) {
       const err = e instanceof CauthyApiError ? e : new CauthyApiError(503, 'unavailable', 'Cauthy could not be reached.')
-      return problem(err.status, err.code, err.message.replace(/^cauthy-auth: /, ''), undefined, asker.headers)
+      return problem(err.status, err.code, err.message.replace(/^@cauthyhq\/node: /, ''), undefined, asker.headers)
     }
   }
 

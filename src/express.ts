@@ -109,7 +109,7 @@ export function cauthyExpress(auth: Cauthy) {
 /** For a route only a signed-in person may call: answers 401 otherwise. Needs `cauthyExpress` mounted before it. */
 export function requireSession(req: IncomingMessage, res: ServerResponse, next: Next): void {
   const ask = (req as NodeRequest).cauthy
-  if (!ask) return next(new Error('cauthy-auth: mount cauthyExpress(auth) before requireSession'))
+  if (!ask) return next(new Error('@cauthyhq/node: mount cauthyExpress(auth) before requireSession'))
   ask().then((session) => {
     if (session !== null) return next()
     res.statusCode = 401

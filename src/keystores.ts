@@ -1,6 +1,6 @@
-// cauthy-auth/keys: where a contracted application keeps its own key.
+// @cauthyhq/node/keys: where a contracted application keeps its own key.
 //
-//   import { postgresKeyStore } from 'cauthy-auth/keys'
+//   import { postgresKeyStore } from '@cauthyhq/node/keys'
 //   keys: postgresKeyStore((text, params) => pool.query(text, params))
 //
 // The file store is for a developer's machine: production keeps its key in

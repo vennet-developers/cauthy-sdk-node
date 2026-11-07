@@ -94,7 +94,7 @@ describe('the catalog Cauthy has, as a module', () => {
     // The module as an application would have it, checked by the compiler:
     // what the catalog names compiles, and what it does not is refused.
     const dir = mkdtempSync(join(tmpdir(), 'cauthy-policy-'))
-    writeFileSync(join(dir, 'policy.ts'), source.replace(`from 'cauthy-auth'`, `from ${JSON.stringify(join(process.cwd(), 'src/permissions'))}`))
+    writeFileSync(join(dir, 'policy.ts'), source.replace(`from '@cauthyhq/node'`, `from ${JSON.stringify(join(process.cwd(), 'src/permissions'))}`))
     writeFileSync(join(dir, 'app.ts'), `import { can, hasRole, type Role } from './policy'
 const org = { role: 'reader', permissions: ['ledger:read'] }
 export const ok = [can(org, 'ledger:read'), can(org, 'books.close:write'), hasRole(org, 'guest')]
@@ -213,7 +213,7 @@ describe('the catalog Cauthy has, with resources declared, as a module', () => {
 
     const dir = mkdtempSync(join(tmpdir(), 'cauthy-catalog-'))
     const src = (m: string) => JSON.stringify(join(process.cwd(), `src/${m}`))
-    writeFileSync(join(dir, 'policy.ts'), source.replace(`from 'cauthy-auth'`, `from ${src('index')}`))
+    writeFileSync(join(dir, 'policy.ts'), source.replace(`from '@cauthyhq/node'`, `from ${src('index')}`))
     writeFileSync(join(dir, 'app.ts'), `import { can, policy, type Check } from './policy'
 import type { Cauthy } from ${src('cauthy')}
 import type { AuthClient } from ${JSON.stringify(join(process.cwd(), 'test-support/client'))}

@@ -33,7 +33,7 @@ export interface CauthyEvent {
 
 export class CauthyWebhookError extends Error {
   constructor(readonly reason: string) {
-    super(`cauthy-auth: webhook refused: ${reason}`)
+    super(`@cauthyhq/node: webhook refused: ${reason}`)
     this.name = 'CauthyWebhookError'
   }
 }

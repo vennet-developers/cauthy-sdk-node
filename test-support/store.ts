@@ -1,9 +1,9 @@
-// Copied from cauthy-auth 0.42 so the tests can drive the server the way a
+// Copied from @cauthyhq/node 0.42 so the tests can drive the server the way a
 // browser does. Not published: the browser client ships in @cauthyhq/js.
 
 // Who is signed in, kept for the browser: the same thing <CauthyProvider>
-// keeps for React, with no framework in it. `cauthy-auth/vue` and
-// `cauthy-auth/svelte` are this store in each one's own terms, and anything
+// keeps for React, with no framework in it. `@cauthyhq/node/vue` and
+// `@cauthyhq/node/svelte` are this store in each one's own terms, and anything
 // else (Solid, Angular, a page with no framework) can use it as it is.
 //
 //   const store = createSessionStore()

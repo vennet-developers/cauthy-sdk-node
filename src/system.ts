@@ -71,7 +71,7 @@ export class CauthyApiError extends Error {
     readonly code: string,
     message: string,
   ) {
-    super(`cauthy-auth: ${message}`)
+    super(`@cauthyhq/node: ${message}`)
     this.name = 'CauthyApiError'
   }
 }

@@ -1,6 +1,6 @@
 // An MCP server (or any API) that AI agents use as one of your people.
 //
-//   import { mcpAuth } from 'cauthy-auth/mcp'
+//   import { mcpAuth } from '@cauthyhq/node/mcp'
 //   const auth = mcpAuth({ resource: 'https://mcp.example.com/mcp', scopes: ['books:read'] })
 //
 //   // Fetch-style (Hono, Next.js, Workers, Bun, Deno):
@@ -104,7 +104,7 @@ export class CauthyExchangeError extends Error {
     readonly code: string,
     readonly description: string,
   ) {
-    super(`cauthy-auth: token exchange refused (${code}): ${description}`)
+    super(`@cauthyhq/node: token exchange refused (${code}): ${description}`)
     this.name = 'CauthyExchangeError'
   }
 }
@@ -116,7 +116,7 @@ export class McpAuthError extends Error {
     readonly code: 'invalid_request' | 'invalid_token' | 'insufficient_scope',
     readonly description: string,
   ) {
-    super(`cauthy-auth: ${description}`)
+    super(`@cauthyhq/node: ${description}`)
     this.name = 'McpAuthError'
   }
 }
@@ -192,13 +192,13 @@ export function canonicalResource(raw: string): string {
   try {
     u = new URL(raw.trim())
   } catch {
-    throw new Error(`cauthy-auth: resource ${JSON.stringify(raw)} is not an absolute address`)
+    throw new Error(`@cauthyhq/node: resource ${JSON.stringify(raw)} is not an absolute address`)
   }
   const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]'
   if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) {
-    throw new Error('cauthy-auth: resource must be an https address')
+    throw new Error('@cauthyhq/node: resource must be an https address')
   }
-  if (u.search !== '' || u.hash !== '') throw new Error('cauthy-auth: resource may not have a query or a fragment')
+  if (u.search !== '' || u.hash !== '') throw new Error('@cauthyhq/node: resource may not have a query or a fragment')
   return `${u.protocol}//${u.host}${withoutTrailingSlashes(u.pathname)}`
 }
 
@@ -219,10 +219,10 @@ function quoted(v: string): string {
 /** Protects an MCP server with Cauthy. */
 export function mcpAuth(options: McpAuthOptions = {}): McpAuth {
   const rawResource = options.resource ?? env('CAUTHY_MCP_RESOURCE') ?? ''
-  if (rawResource === '') throw new Error('cauthy-auth: resource (CAUTHY_MCP_RESOURCE) is not set')
+  if (rawResource === '') throw new Error('@cauthyhq/node: resource (CAUTHY_MCP_RESOURCE) is not set')
   const resource = canonicalResource(rawResource)
   const issuer = withoutTrailingSlashes(options.issuer ?? env('CAUTHY_ISSUER') ?? '')
-  if (issuer === '') throw new Error('cauthy-auth: issuer (CAUTHY_ISSUER) is not set')
+  if (issuer === '') throw new Error('@cauthyhq/node: issuer (CAUTHY_ISSUER) is not set')
   const required = options.scopes ?? []
   const url = new URL(resource)
   const path = url.pathname === '/' ? '' : url.pathname
@@ -302,7 +302,7 @@ export function mcpAuth(options: McpAuthOptions = {}): McpAuth {
   const exchanged = new Map<string, ExchangedToken & { until: number }>()
   const exchange = async (from: string | AgentIdentity, target: string, scopes: string[] = []): Promise<ExchangedToken> => {
     if (clientId === '' || clientSecret === '') {
-      throw new Error('cauthy-auth: token exchange needs clientId and clientSecret (CAUTHY_MCP_CLIENT_ID, CAUTHY_MCP_CLIENT_SECRET)')
+      throw new Error('@cauthyhq/node: token exchange needs clientId and clientSecret (CAUTHY_MCP_CLIENT_ID, CAUTHY_MCP_CLIENT_SECRET)')
     }
     const subject = typeof from === 'string' ? bearer(from) : from.token
     const to = canonicalResource(target)

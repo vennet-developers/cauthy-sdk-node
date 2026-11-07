@@ -28,7 +28,7 @@ export interface TokenIdentity {
 
 export class CauthyTokenError extends Error {
   constructor(readonly reason: string) {
-    super(`cauthy-auth: token refused: ${reason}`)
+    super(`@cauthyhq/node: token refused: ${reason}`)
     this.name = 'CauthyTokenError'
   }
 }

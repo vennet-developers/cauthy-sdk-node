@@ -98,7 +98,7 @@ const plugin: FastifyPluginAsync<CauthyFastifyOptions> = async (app: FastifyInst
 // Outside encapsulation: `req.cauthy()` and `requireSession` are for the whole
 // application, not only for routes registered beside this plugin.
 ;(plugin as unknown as Record<symbol, boolean>)[Symbol.for('skip-override')] = true
-;(plugin as unknown as Record<symbol, unknown>)[Symbol.for('fastify.display-name')] = 'cauthy-auth'
+;(plugin as unknown as Record<symbol, unknown>)[Symbol.for('fastify.display-name')] = '@cauthyhq/node'
 
 export const cauthyFastify = plugin
 export default plugin

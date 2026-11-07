@@ -1,6 +1,6 @@
 // Connecting an application to Cauthy in one call: its client, where its
 // people come back to, where it hears events, and its own identity. It is what
-// `cauthy-auth init` runs, and what Cauthy's dashboard does under "Connect a
+// `@cauthyhq/node init` runs, and what Cauthy's dashboard does under "Connect a
 // system".
 
 import { withoutTrailingSlashes } from './url'
@@ -61,7 +61,7 @@ export async function connectSystem(o: ConnectOptions): Promise<Connected> {
   const tenant = o.tenant ?? env('CAUTHY_TENANT') ?? ''
   const token = o.token ?? env('CAUTHY_TOKEN') ?? ''
   for (const [name, v] of Object.entries({ CAUTHY_ISSUER: issuer, CAUTHY_TENANT: tenant, CAUTHY_TOKEN: token })) {
-    if (v === '') throw new Error(`cauthy-auth: ${name} is required to connect a system`)
+    if (v === '') throw new Error(`@cauthyhq/node: ${name} is required to connect a system`)
   }
   const res = await (o.fetch ?? fetch)(`${issuer}/v1/connect`, {
     method: 'POST',
@@ -76,7 +76,7 @@ export async function connectSystem(o: ConnectOptions): Promise<Connected> {
   } | null
   if (!res.ok || !body?.data) {
     const why = (body?.errors ?? []).map((e) => e.message).filter(Boolean).join('; ') || res.statusText
-    throw new Error(`cauthy-auth: Cauthy did not connect the system (${res.status}): ${why}`)
+    throw new Error(`@cauthyhq/node: Cauthy did not connect the system (${res.status}): ${why}`)
   }
   const d = body.data
   return { system: d.system, clientId: d.client.client_id, clientSecret: d.client_secret, redirectUris: d.client.redirect_uris,
