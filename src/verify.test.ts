@@ -74,6 +74,41 @@ describe('an access token', () => {
     expect(() => createTokenVerifier({ ...options })).not.toThrow()
   })
 
+  it('is async: a bad configuration is a rejected promise, not a throw', async () => {
+    const { audience: _a, ...bare } = options
+    const call = verifyToken('x', bare)
+    expect(call).toBeInstanceOf(Promise)
+    await expect(call).rejects.toBeInstanceOf(CauthyConfigError)
+  })
+
+  it('takes http for localhost, *.localhost and *.test only', () => {
+    for (const ok of ['http://localhost:8080', 'http://127.0.0.1', 'http://id.localhost', 'http://cauthy.test:3000']) {
+      expect(() => createTokenVerifier({ ...options, issuer: ok })).not.toThrow()
+    }
+    for (const bad of ['http://id.example.com', 'http://attacker-localhost.com', 'http://test.example.com', 'ftp://id.test']) {
+      expect(() => createTokenVerifier({ ...options, issuer: bad })).toThrow(/https/)
+    }
+  })
+
+  it('refuses a date written with a fraction or an exponent', async () => {
+    const pair = await generateKeyPair('RS256')
+    const jwks = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k2', alg: 'RS256' }] })
+    const iat = Math.floor(Date.now() / 1000)
+    const forge = async (payload: string) => {
+      const b64 = (s: string) => Buffer.from(s).toString('base64url')
+      const head = b64(JSON.stringify({ alg: 'RS256', kid: 'k2' }))
+      const body = b64(payload)
+      const { createSign } = await import('node:crypto')
+      const sig = createSign('RSA-SHA256').update(`${head}.${body}`).sign(pair.privateKey as never).toString('base64url')
+      return `${head}.${body}.${sig}`
+    }
+    const claims = (exp: string) => `{"iss":"${issuer}","aud":"cauthy-api","sub":"${person.sub}","tid":"${tenantId}","iat":${iat},"exp":${exp}}`
+    const verify = (token: string) => verifyToken(token, { ...options, jwks })
+    await expect(verify(await forge(claims(String(iat + 600))))).resolves.toBeTruthy()
+    await expect(verify(await forge(claims(`${iat + 600}.0`)))).rejects.toMatchObject({ reason: 'invalid_claim' })
+    await expect(verify(await forge(claims(`${(iat + 600) / 1000}e3`)))).rejects.toMatchObject({ reason: 'invalid_claim' })
+  })
+
   it('names why it refuses, with the spec\'s codes', async () => {
     await expect(verifyToken(await sign(person), { ...options, audience: 'another-api' })).rejects.toMatchObject({ reason: 'wrong_audience' })
     await expect(verifyToken(await sign(person, { key: stranger }), options)).rejects.toMatchObject({ reason: 'bad_signature' })

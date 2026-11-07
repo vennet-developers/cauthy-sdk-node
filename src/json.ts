@@ -7,21 +7,22 @@
 const SPACE = new Set([' ', '\t', '\n', '\r'])
 const LIMIT = 2n ** 53n
 
-export function parseStrict(text: string): unknown {
+export function parseStrict(text: string, integerMembers: readonly string[] = []): unknown {
   let i = 0
+  let depth = 0
   const fail = (what: string): never => {
     throw new SyntaxError(`${what} at ${i}`)
   }
   const skip = () => {
     while (i < text.length && SPACE.has(text[i])) i++
   }
-  const value = (): unknown => {
+  const value = (integer = false): unknown => {
     skip()
     const c = text[i]
     if (c === '{') return object()
     if (c === '[') return array()
     if (c === '"') return string()
-    if (c === '-' || (c >= '0' && c <= '9')) return number()
+    if (c === '-' || (c >= '0' && c <= '9')) return number(integer)
     for (const [word, v] of [['true', true], ['false', false], ['null', null]] as const) {
       if (text.startsWith(word, i)) {
         i += word.length
@@ -38,10 +39,12 @@ export function parseStrict(text: string): unknown {
     i++
     return JSON.parse(text.slice(start, i)) as string
   }
-  const number = (): number => {
+  const number = (integer: boolean): number => {
     const m = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/.exec(text.slice(i))
     if (!m) return fail('bad number')
     i += m[0].length
+    // Where the claim must be an integer, 2.0 and 1e3 are not integer literals.
+    if (integer && (m[2] !== undefined || m[3] !== undefined)) return Number.NaN
     if (m[2] === undefined && m[3] === undefined) {
       const big = BigInt(m[0])
       if (big > LIMIT || big < -LIMIT) return Number.NaN
@@ -50,10 +53,12 @@ export function parseStrict(text: string): unknown {
   }
   const array = (): unknown[] => {
     i++
+    depth++
     const out: unknown[] = []
     skip()
     if (text[i] === ']') {
       i++
+      depth--
       return out
     }
     for (;;) {
@@ -62,17 +67,20 @@ export function parseStrict(text: string): unknown {
       if (text[i] === ',') i++
       else if (text[i] === ']') {
         i++
+        depth--
         return out
       } else fail('expected , or ]')
     }
   }
   const object = (): Record<string, unknown> => {
     i++
+    depth++
     const out: Record<string, unknown> = {}
     const seen = new Set<string>()
     skip()
     if (text[i] === '}') {
       i++
+      depth--
       return out
     }
     for (;;) {
@@ -84,11 +92,12 @@ export function parseStrict(text: string): unknown {
       skip()
       if (text[i] !== ':') fail('expected :')
       i++
-      Object.defineProperty(out, name, { value: value(), enumerable: true, writable: true, configurable: true })
+      Object.defineProperty(out, name, { value: value(depth === 1 && integerMembers.includes(name)), enumerable: true, writable: true, configurable: true })
       skip()
       if (text[i] === ',') i++
       else if (text[i] === '}') {
         i++
+        depth--
         return out
       } else fail('expected , or }')
     }

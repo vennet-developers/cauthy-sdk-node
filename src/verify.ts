@@ -9,7 +9,7 @@
 // it 401, and read `reason`, one of the closed list of codes in the spec's
 // verification/rules.md.
 
-import { compactVerify, createRemoteJWKSet, type CompactVerifyGetKey, type JWTVerifyGetKey } from 'jose'
+import { compactVerify, createLocalJWKSet, type CompactVerifyGetKey, type JSONWebKeySet, type JWTVerifyGetKey } from 'jose'
 import { parseStrict } from './json'
 import { CauthyConfigError } from './types'
 import { withoutTrailingSlashes } from './url'
@@ -39,6 +39,18 @@ export type TokenRefusal =
   | 'bad_signature' | 'missing_claim' | 'invalid_claim' | 'wrong_issuer' | 'wrong_audience' | 'expired' | 'not_yet_valid'
   | 'issued_in_future' | 'wrong_tenant' | 'system_token' | 'anonymous_token'
 
+/**
+ * Cauthy's keys could not be fetched (or are not a key set): the token may be
+ * good, and the application cannot tell. Answer 503, not 401. It is not a
+ * `CauthyTokenError`: it says nothing about the token.
+ */
+export class CauthyUnavailableError extends Error {
+  constructor(detail: string) {
+    super(`@cauthyhq/node: Cauthy's keys are unavailable: ${detail}`)
+    this.name = 'CauthyUnavailableError'
+  }
+}
+
 export class CauthyTokenError extends Error {
   constructor(readonly reason: TokenRefusal, readonly detail?: string) {
     super(`@cauthyhq/node: token refused: ${reason}${detail ? ` (${detail})` : ''}`)
@@ -58,8 +70,10 @@ export interface VerifyTokenOptions {
   audience?: string
   /** The workspace's id, a lowercase UUID. Required: this or `CAUTHY_TENANT_ID`. */
   tenantId?: string
-  /** Cauthy's keys. Default: fetched from the issuer and cached. */
+  /** Cauthy's keys. Default: fetched from the issuer and cached (see `remoteKeys`). */
   jwks?: JWTVerifyGetKey
+  /** The fetch to get the keys with. Default: the global one. */
+  fetch?: typeof fetch
   /** The moment to verify at. Default: now. */
   now?: Date
   /** Clock tolerance in seconds, 0 to 60. Default: 30. */
@@ -79,14 +93,107 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
 const SEGMENT = /^[A-Za-z0-9_-]+$/
 
-const keys = new Map<string, JWTVerifyGetKey>()
+const MAX_KEYS_BYTES = 64 * 1024
+const KEYS_TIMEOUT_MS = 5000
+const KEYS_COOLDOWN_MS = 30_000
+const KEYS_DEFAULT_TTL_S = 300
+const KEYS_MAX_TTL_S = 3600
 
-/** Cauthy's published keys, fetched once per issuer and cached. */
+/**
+ * Cauthy's published keys (K1 to K5 of verification/rules.md): fetched with a
+ * GET that follows no redirect, within 5 seconds, from `<issuer>/.well-known/jwks.json`;
+ * only a 200 of at most 64 KiB counts. Kept for the answer's max-age (at most
+ * an hour, 5 minutes when it names none); a `kid` the set lacks fetches again
+ * only if the last fetch is older than 30 seconds; one fetch at a time; a
+ * failed fetch keeps the last good set, and with none it is
+ * `CauthyUnavailableError`.
+ */
+export function remoteKeys(issuer: string, fetchKeys: typeof fetch = fetch): JWTVerifyGetKey {
+  let set: JWTVerifyGetKey | undefined
+  let startedAt = 0
+  let expiresAt = 0
+  let inflight: Promise<void> | undefined
+
+  const load = async (): Promise<void> => {
+    startedAt = Date.now()
+    try {
+      const res = await fetchKeys(`${issuer}/.well-known/jwks.json`, { redirect: 'manual', signal: AbortSignal.timeout(KEYS_TIMEOUT_MS), headers: { accept: 'application/json' } })
+      if (res.status !== 200) throw new Error(`answered ${res.status}`)
+      const bytes = await readCapped(res, MAX_KEYS_BYTES)
+      const parsed = JSON.parse(new TextDecoder().decode(bytes)) as JSONWebKeySet
+      if (!parsed || !Array.isArray(parsed.keys)) throw new Error('not a key set')
+      set = createLocalJWKSet(parsed)
+      const maxAge = /max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')
+      const ttl = Math.min(maxAge ? Number(maxAge[1]) : KEYS_DEFAULT_TTL_S, KEYS_MAX_TTL_S)
+      expiresAt = Date.now() + ttl * 1000
+    } catch (err) {
+      // The last good set stands; with none, the application cannot tell.
+      if (set === undefined) throw new CauthyUnavailableError(err instanceof Error ? err.message : 'unreachable')
+    }
+  }
+  const refresh = (): Promise<void> => {
+    inflight ??= load().finally(() => {
+      inflight = undefined
+    })
+    return inflight
+  }
+
+  return async (header, token) => {
+    if (set === undefined || Date.now() >= expiresAt) await refresh()
+    try {
+      return await set!(header, token)
+    } catch (err) {
+      const unknown = (err as { code?: unknown } | null)?.code === 'ERR_JWKS_NO_MATCHING_KEY'
+      if (unknown && Date.now() - startedAt >= KEYS_COOLDOWN_MS) {
+        await refresh()
+        return set!(header, token)
+      }
+      throw err
+    }
+  }
+}
+
+async function readCapped(res: Response, max: number): Promise<Uint8Array> {
+  const reader = res.body?.getReader()
+  if (!reader) return new Uint8Array()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.length
+    if (size > max) {
+      await reader.cancel()
+      throw new Error(`over ${max} bytes`)
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const c of chunks) {
+    out.set(c, at)
+    at += c.length
+  }
+  return out
+}
+
+const published = new Map<string, JWTVerifyGetKey>()
+const withFetch = new WeakMap<typeof fetch, Map<string, JWTVerifyGetKey>>()
+
+function remoteKeysFor(issuer: string, fetchKeys: typeof fetch): JWTVerifyGetKey {
+  let byIssuer = withFetch.get(fetchKeys)
+  if (!byIssuer) withFetch.set(fetchKeys, (byIssuer = new Map()))
+  let set = byIssuer.get(issuer)
+  if (!set) byIssuer.set(issuer, (set = remoteKeys(issuer, fetchKeys)))
+  return set
+}
+
+/** Cauthy's published keys, fetched once per issuer and kept (see `remoteKeys`). */
 export function keysOf(issuer: string): JWTVerifyGetKey {
-  let set = keys.get(issuer)
+  let set = published.get(issuer)
   if (set === undefined) {
-    set = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`), { cooldownDuration: 30_000 })
-    keys.set(issuer, set)
+    set = remoteKeys(issuer)
+    published.set(issuer, set)
   }
   return set
 }
@@ -109,8 +216,9 @@ function issuerAddress(value: string, what: string): string {
   } catch {
     throw new CauthyConfigError(`${what} must be an https address, e.g. https://id.example.com`)
   }
-  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) throw new CauthyConfigError(`${what} must be https (http only for localhost)`)
+  // http is for a developer's own machine: localhost, 127.0.0.1, *.localhost and *.test.
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.endsWith('.localhost') || url.hostname.endsWith('.test')
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) throw new CauthyConfigError(`${what} must be https (http only for localhost, *.localhost and *.test)`)
   if (url.search !== '' || url.hash !== '') throw new CauthyConfigError(`${what} must have no query or fragment`)
   return withoutTrailingSlashes(value)
 }
@@ -167,7 +275,7 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     // R5, R6
     let payloadBytes: Uint8Array
     try {
-      const verified = await compactVerify(token, (options.jwks ?? keysOf(issuer)) as CompactVerifyGetKey, { algorithms: ['RS256'] })
+      const verified = await compactVerify(token, (options.jwks ?? (options.fetch ? remoteKeysFor(issuer, options.fetch) : keysOf(issuer))) as CompactVerifyGetKey, { algorithms: ['RS256'] })
       payloadBytes = verified.payload
     } catch (err) {
       // By code, not by class: the keys may come from another copy of jose.
@@ -176,13 +284,14 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
       if (code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED') throw new CauthyTokenError('bad_signature')
       if (err instanceof TypeError && /2048/.test(err.message)) throw new CauthyTokenError('weak_key')
       if (code === 'ERR_JWS_INVALID') throw new CauthyTokenError('malformed', err instanceof Error ? err.message : undefined)
+      if (err instanceof CauthyUnavailableError) throw err
       throw new CauthyTokenError('bad_signature', err instanceof Error ? err.message : undefined)
     }
 
     // R7
     let claims: unknown
     try {
-      claims = parseStrict(new TextDecoder().decode(payloadBytes))
+      claims = parseStrict(new TextDecoder().decode(payloadBytes), ['exp', 'iat', 'nbf'])
     } catch {
       throw new CauthyTokenError('malformed', 'the payload is not JSON')
     }
@@ -239,6 +348,6 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
  * Needs an issuer, an audience and a workspace (see `createTokenVerifier`,
  * which checks them once, at startup).
  */
-export function verifyToken(from: string | Request | Headers, options: VerifyTokenOptions = {}): Promise<TokenIdentity> {
+export async function verifyToken(from: string | Request | Headers, options: VerifyTokenOptions = {}): Promise<TokenIdentity> {
   return createTokenVerifier(options)(from)
 }

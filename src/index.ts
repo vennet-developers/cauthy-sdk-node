@@ -22,6 +22,6 @@ export { memoryReplayStore, verifyWebhook, CauthyWebhookError, type CauthyEvent,
 export { createSystem, CauthyApiError, type CauthySystem, type NewMember, type Organization, type OrganizationMember, type SystemKey, type SystemOptions } from './system'
 export { connectSystem, type ConnectOptions, type Connected } from './connect'
 export { MIN_PASSWORD, DEFAULT_PASSWORD_POLICY, checkCode, checkEmail, checkName, checkNewPassword, checkPassword, describePasswordPolicy, explainPasswordProblems, passwordPolicyOf, passwordProblems, type AuthField, type FieldProblem, type PasswordClass, type PasswordLocale, type PasswordPolicy, type PasswordReason } from './validate'
-export { verifyToken, CauthyTokenError, type TokenIdentity, type VerifyTokenOptions } from './verify'
+export { verifyToken, createTokenVerifier, remoteKeys, CauthyTokenError, CauthyUnavailableError, type TokenIdentity, type TokenRefusal, type VerifyTokenOptions } from './verify'
 export { PROTOCOL_VERSION, type NextStep } from './protocol'
 export { type MountTarget } from './mount'

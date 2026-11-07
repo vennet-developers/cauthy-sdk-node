@@ -133,6 +133,7 @@ import type {
   CauthyOptions as TheirOptions,
   ConnectOptions as TheirConnect,
   SystemOptions as TheirSystem,
+  PushPolicyOptions as TheirPushPolicy,
   VerifyTokenOptions as TheirVerify,
 } from 'cauthy-auth'
 import type { McpAuthOptions as TheirMcp } from 'cauthy-auth/mcp'
@@ -143,6 +144,7 @@ import type {
 } from 'cauthy-auth/theme'
 import type { CauthyFastifyOptions as OurFastify } from '../src/fastify'
 import type { ConnectOptions as OurConnect } from '../src/connect'
+import type { PushPolicyOptions as OurPushPolicy } from '../src/permissions'
 import type { ContractOptions as OurContract } from '../src/contract'
 import type { McpAuthOptions as OurMcp } from '../src/mcp'
 import type { SystemOptions as OurSystem } from '../src/system'
@@ -162,3 +164,4 @@ export const connect = (o: TheirConnect): OurConnect => o
 export const push = (o: TheirPush): OurPush => o
 export const css = (o: TheirCss): OurCss => o
 export const stackmyth = (o: TheirStackmyth): OurStackmyth => o
+export const pushPolicy = (o: TheirPushPolicy): OurPushPolicy => o

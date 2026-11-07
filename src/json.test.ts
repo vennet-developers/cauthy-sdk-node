@@ -24,6 +24,17 @@ describe('the strict JSON reader of tokens', () => {
     expect(parseStrict('1e400')).toBe(Infinity)
   })
 
+  it('refuses a fraction or an exponent where the claim must be an integer literal', () => {
+    const only = ['exp', 'iat', 'nbf']
+    expect(parseStrict('{"exp":1767225600}', only)).toEqual({ exp: 1767225600 })
+    expect(parseStrict('{"exp":1767225600.0}', only)).toEqual({ exp: Number.NaN })
+    expect(parseStrict('{"iat":1.7672256e9}', only)).toEqual({ iat: Number.NaN })
+    expect(parseStrict('{"nbf":1E3}', only)).toEqual({ nbf: Number.NaN })
+    // Other members, and nested ones, are read as numbers are.
+    expect(parseStrict('{"x":1.5,"n":{"exp":2.0}}', only)).toEqual({ x: 1.5, n: { exp: 2 } })
+    expect(parseStrict('{"exp":2.0}')).toEqual({ exp: 2 })
+  })
+
   it('keeps __proto__ as a name, not as a prototype', () => {
     const read = parseStrict('{"__proto__":{"x":1}}') as Record<string, unknown>
     expect(Object.keys(read)).toEqual(['__proto__'])

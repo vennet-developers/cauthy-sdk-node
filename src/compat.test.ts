@@ -17,6 +17,15 @@ const entries: [string, Load, Load][] = [
   ['/theme', () => import('cauthy-auth/theme'), () => import('./theme')],
 ]
 
+describe('what 1.0 adds to the root', () => {
+  it('exports the verifier builder, the key reader and the errors', async () => {
+    const root = await import('./index')
+    for (const name of ['createTokenVerifier', 'remoteKeys', 'CauthyTokenError', 'CauthyUnavailableError', 'verifyToken', 'PROTOCOL_VERSION']) {
+      expect(root).toHaveProperty(name)
+    }
+  })
+})
+
 describe('what cauthy-auth 0.42 exported', () => {
   it.each(entries)('%s is all still here', async (_entry, theirs, ours) => {
     const [a, b] = await Promise.all([theirs(), ours()])
