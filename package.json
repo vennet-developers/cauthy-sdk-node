@@ -97,6 +97,16 @@
         "default": "./dist/theme.js"
       }
     },
+    "./testing": {
+      "import": {
+        "types": "./dist/testing.d.mts",
+        "default": "./dist/testing.mjs"
+      },
+      "require": {
+        "types": "./dist/testing.d.ts",
+        "default": "./dist/testing.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -1,5 +1,6 @@
 // A Cauthy that lives in memory, and a browser that keeps cookies: what the
-// tests sign in against. Not exported from the package.
+// tests sign in against. Exported as `@cauthyhq/node/testing`, for tests only:
+// it signs in anyone it was told about, and checks nothing a real Cauthy does.
 
 export class FakeCauthy {
   readonly issuer = 'https://id.test'

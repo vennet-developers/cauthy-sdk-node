@@ -10,6 +10,7 @@ export default defineConfig({
     mcp: 'src/mcp.ts',
     keys: 'src/keystores.ts',
     theme: 'src/theme.ts',
+    testing: 'src/testing.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,
