@@ -6,3 +6,4 @@ conformance-report.json
 *.tgz
 .DS_Store
 .env*
+local.env
