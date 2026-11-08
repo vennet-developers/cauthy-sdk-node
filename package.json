@@ -185,5 +185,8 @@
     "tsx": "4.22.4",
     "typescript": "5.9.3",
     "vitest": "4.1.12"
+  },
+  "overrides": {
+    "postcss": "8.5.32"
   }
 }
