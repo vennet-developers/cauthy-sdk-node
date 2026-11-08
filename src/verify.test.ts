@@ -63,6 +63,37 @@ describe('an access token', () => {
     expect((await verifyToken(await sign(person), options)).anonymous).toBeUndefined()
   })
 
+  // R13 (client_token): a client_credentials token is marked with token_use and the client's public id.
+  const client = { sub: '5b0b7d1e-3c41-4f8a-9d55-0a1f6c2e8b73', tid: tenantId, roles: ['invoices:read'], token_use: 'client', client_id: 'acme-billing' }
+
+  it('refuses a client\'s own token where a person is expected (R13)', async () => {
+    await expect(verifyToken(await sign(client), options)).rejects.toMatchObject({ reason: 'client_token' })
+    // Its presence is the mark, whatever the value.
+    await expect(verifyToken(await sign({ ...person, token_use: 'person' }), options)).rejects.toMatchObject({ reason: 'client_token' })
+    // A system's own token is refused as a system's even when it carries token_use.
+    await expect(verifyToken(await sign({ ...client, sys: 'books' }), { ...options, allowClientTokens: true })).rejects.toMatchObject({ reason: 'system_token' })
+  })
+
+  it('says which client it is, for a backend that serves machines (allowClientTokens)', async () => {
+    const who = await verifyToken(await sign(client), { ...options, allowClientTokens: true })
+    expect(who).toMatchObject({ userId: client.sub, clientId: 'acme-billing', roles: ['invoices:read'] })
+    expect(who.email).toBeUndefined()
+    expect(who.authorizedParty).toBeUndefined()
+  })
+
+  it('types token_use and azp as strings (R8)', async () => {
+    for (const claims of [{ token_use: null }, { token_use: 1 }, { azp: null }, { azp: ['acme-web'] }]) {
+      await expect(verifyToken(await sign({ ...person, ...claims }), { ...options, allowClientTokens: true })).rejects.toMatchObject({ reason: 'invalid_claim' })
+    }
+  })
+
+  it('says which client a person\'s token was issued through (azp)', async () => {
+    const who = await verifyToken(await sign({ ...person, azp: 'acme-web' }), options)
+    expect(who.authorizedParty).toBe('acme-web')
+    expect(who.clientId).toBeUndefined()
+    expect((await verifyToken(await sign(person), options)).authorizedParty).toBeUndefined()
+  })
+
   it('does not start without an audience or a workspace, or with a bad one', () => {
     const { audience: _a, tenantId: _t, ...bare } = options
     expect(() => createTokenVerifier({ ...bare, tenantId })).toThrow(CauthyConfigError)

@@ -27,6 +27,13 @@ export interface TokenIdentity {
   system?: string
   /** Set when the token is a guest's (only with `allowAnonymous`). */
   anonymous?: true
+  /** The client a person's token was issued through (`azp`); absent when none was named. */
+  authorizedParty?: string
+  /**
+   * The token's `client_id`: on a client's own token (only with
+   * `allowClientTokens`), the client's public id; on an AI agent's, the agent's.
+   */
+  clientId?: string
   /** UTC, ISO 8601. */
   expiresAt: string
   /** The token as it arrived, to pass on. */
@@ -37,7 +44,7 @@ export interface TokenIdentity {
 export type TokenRefusal =
   | 'no_token' | 'too_large' | 'malformed' | 'alg_not_allowed' | 'unsupported_header' | 'missing_kid' | 'unknown_kid' | 'weak_key'
   | 'bad_signature' | 'missing_claim' | 'invalid_claim' | 'wrong_issuer' | 'wrong_audience' | 'expired' | 'not_yet_valid'
-  | 'issued_in_future' | 'wrong_tenant' | 'system_token' | 'anonymous_token'
+  | 'issued_in_future' | 'wrong_tenant' | 'system_token' | 'client_token' | 'anonymous_token'
 
 /**
  * Cauthy's keys could not be fetched (or are not a key set): the token may be
@@ -86,6 +93,13 @@ export interface VerifyTokenOptions {
   allowSystem?: boolean
   /** Accept a guest's token (`anon: true`). Default: false (rule R14). */
   allowAnonymous?: boolean
+  /**
+   * Accept a client's own token (a `token_use` claim, from a
+   * `client_credentials` grant) too: for a backend that serves machines as
+   * well as people. Default: false, so a machine never passes as a person
+   * (rule R13). The identity then carries `clientId`.
+   */
+  allowClientTokens?: boolean
 }
 
 const MAX_TOKEN_BYTES = 8192
@@ -325,6 +339,7 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     if (claims.roles !== undefined && claims.roles !== null && !(Array.isArray(claims.roles) && claims.roles.every((r) => typeof r === 'string'))) bad('roles')
     if (claims.email !== undefined && typeof claims.email !== 'string') bad('email')
     for (const name of ['email_verified', 'anon']) if (claims[name] !== undefined && typeof claims[name] !== 'boolean') bad(name)
+    for (const name of ['token_use', 'azp']) if (claims[name] !== undefined && typeof claims[name] !== 'string') bad(name)
 
     // R9, R10
     if (!issuers.includes(claims.iss as string)) throw new CauthyTokenError('wrong_issuer')
@@ -339,6 +354,8 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     // R13, R14
     // Its presence is the mark, whatever the value (null and false included).
     if ('sys' in claims && !options.allowSystem) throw new CauthyTokenError('system_token')
+    // A client's own token stands for a machine: present is the mark, as for sys.
+    if ('token_use' in claims && !options.allowClientTokens) throw new CauthyTokenError('client_token')
     if (claims.anon === true && !options.allowAnonymous) throw new CauthyTokenError('anonymous_token')
 
     return {
@@ -349,6 +366,8 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
       roles: Array.isArray(claims.roles) ? (claims.roles as string[]) : [],
       ...(typeof claims.sys === 'string' && claims.sys !== '' ? { system: claims.sys } : {}),
       ...(claims.anon === true ? { anonymous: true as const } : {}),
+      ...(typeof claims.azp === 'string' && claims.azp !== '' ? { authorizedParty: claims.azp } : {}),
+      ...(typeof claims.client_id === 'string' && claims.client_id !== '' ? { clientId: claims.client_id } : {}),
       expiresAt: new Date((claims.exp as number) * 1000).toISOString(),
       token,
     }

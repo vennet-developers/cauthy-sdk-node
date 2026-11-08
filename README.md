@@ -106,6 +106,8 @@ const verify = createTokenVerifier({ issuer: 'https://id.example.com', audience:
 
 - **The audience and the workspace are required.** Without them a token issued for another application or workspace would be accepted.
 - A system's own token (`sys` claim, whatever its value) and a guest's token (`anon: true`) are refused where a person is expected. Pass `allowSystem` or `allowAnonymous` for an endpoint that takes them.
+- A client's own token (a `client_credentials` grant: `token_use: "client"`, whatever the value) is refused with `client_token` where a person is expected. A backend that serves machines too passes `allowClientTokens: true`; the identity then carries `clientId`, the client's public id (its `userId` is the client's internal id).
+- `authorizedParty` is the token's `azp`: the client a person's token was issued through, absent when none was named.
 - Clock tolerance is 30 seconds (`leeway`, 0 to 60). A token over 8192 bytes, with a repeated JSON name, a fractional date or a wrongly typed claim is refused.
 - Keys are fetched from `<issuer>/.well-known/jwks.json` with no redirect, within 5 seconds, at most 64 KiB, and kept for the answer's `max-age`.
 
