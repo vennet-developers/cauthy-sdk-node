@@ -171,6 +171,7 @@ It refuses to start when any `CAUTHY_*` variable of the standard mode is also se
 CI runs the auth-bff conformance suite at level `strict` against `examples/acme-crm` on an in-memory Cauthy, and the spec's token vectors against `verifyToken`:
 
     SPEC_DIR=../cauthy-sdk-spec LEVEL=strict npm run conformance
+    SPEC_DIR=../cauthy-sdk-spec LEVEL=switches npm run conformance   # also the dashboard switches, on the in-memory Cauthy
     SPEC_DIR=../cauthy-sdk-spec npm run vectors
 
 ## Security
