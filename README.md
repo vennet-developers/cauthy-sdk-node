@@ -14,7 +14,7 @@ Node 20 or later. ESM and CommonJS. One dependency: `jose`.
 
 **1. Register the application in Cauthy's dashboard** (Applications, New application) and add this redirect URI: `${CAUTHY_BASE_URL}/api/auth/callback`, e.g. `http://localhost:3000/api/auth/callback`. The dashboard shows the client id.
 
-**2. Set the environment** (the CLI that writes this for you, `cauthy init`, is coming; until then it is five variables):
+**2. Set the environment**: the five variables the dashboard hands out when you connect the application. The [five-minute guide](https://cauthy.docs.vennet.dev/en/guide/get-started/) walks through it; a system joining Vennet's network by contract uses `npx @cauthyhq/cli init` instead.
 
 | Variable | Where it comes from |
 | --- | --- |
@@ -120,8 +120,10 @@ const verify = createTokenVerifier({ issuer: 'https://id.example.com', audience:
 | --- | --- |
 | `cauthy-auth` | `@cauthyhq/node` |
 | `cauthy-auth/express`, `/fastify`, `/hono`, `/next`, `/mcp`, `/keys`, `/theme` | `@cauthyhq/node/express`, … (same names) |
-| `cauthy-auth/react`, `/client`, `/vue`, `/svelte`, `/styles.css` | Keep `cauthy-auth` 0.43 in the browser until `@cauthyhq/js` and `@cauthyhq/react` ship |
-| `npx cauthy-auth …` | The `cauthy` CLI (coming) |
+| `cauthy-auth/react`, `/styles.css` | `@cauthyhq/react`, `@cauthyhq/react/styles.css` |
+| `cauthy-auth/client` | `@cauthyhq/js` |
+| `cauthy-auth/vue`, `/svelte` | No 1.0 wrapper yet: keep `cauthy-auth` 0.43 in the browser (security fixes until 2027-02-06) |
+| `npx cauthy-auth …` | The `cauthy` CLI: `npx @cauthyhq/cli …` |
 
 Everything that behaves differently from 0.42:
 
