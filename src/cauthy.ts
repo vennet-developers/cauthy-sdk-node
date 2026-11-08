@@ -156,6 +156,8 @@ export interface Cauthy {
    * an API of this application: `verifyToken` with this instance's issuer, its
    * workspace (by contract, the link's `tenant_id`; otherwise `tenantId` or
    * `CAUTHY_TENANT_ID`) and its audience (`audience` or `CAUTHY_AUDIENCE`).
+   * By contract it also refuses a person's token issued through another
+   * client than the link's (`wrong_client`).
    */
   verifyToken(from: string | Request | Headers, options?: Partial<VerifyTokenOptions>): Promise<TokenIdentity>
   /** The same, built once: throws `CauthyConfigError` now if the audience or the workspace is missing. */
@@ -1875,13 +1877,21 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // The endpoint's public address: the application's origin when it was
   // given (a proxy may hide it from the request), with the request's path.
   const replay = given.webhookReplay ?? memoryReplayStore()
-  const tokenVerifier: Cauthy['tokenVerifier'] = (o = {}) => createTokenVerifier({
-    issuer,
-    tenantId: contract?.tenantId ?? given.tenantId,
-    audience: given.audience,
-    fetch: given.fetch,
-    ...o,
-  })
+  const tokenVerifier: Cauthy['tokenVerifier'] = (o = {}) => {
+    // By contract the link owns the client: a person's token issued through
+    // another is refused (wrong_client), and a call cannot name another.
+    if (contract && o.clientId !== undefined && o.clientId !== contract.clientId) {
+      throw new CauthyConfigError(`clientId is the contract's (${contract.clientId}): remove it from the call`)
+    }
+    return createTokenVerifier({
+      issuer,
+      tenantId: contract?.tenantId ?? given.tenantId,
+      audience: given.audience,
+      fetch: given.fetch,
+      ...(contract ? { clientId: contract.clientId } : {}),
+      ...o,
+    })
+  }
   const webhook: Cauthy['webhook'] = (request, o = {}) =>
     verifyWebhook(request, { issuer, url: o.url ?? `${originOf(request)}${new URL(request.url).pathname}`, jwks: o.jwks, now: o.now, replay })
 

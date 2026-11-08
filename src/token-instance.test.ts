@@ -43,6 +43,21 @@ describe('auth.verifyToken: the issuer and the workspace are the instance\'s own
     await expect(auth.verifyToken(await sign({ tid: '11111111-2222-4333-8444-555555555555' }), { jwks })).rejects.toMatchObject({ reason: 'wrong_tenant' })
   })
 
+  it('by contract, refuses a person\'s token issued through another client than the link\'s (R15)', async () => {
+    const auth = createCauthy({ contract: { graph, system: 'acme-crm' }, rootKey: ROOT, audience: 'cauthy', fetch: cauthy.fetch })
+    await expect(auth.verifyToken(await sign({ azp: 'acme-admin' }), { jwks })).rejects.toMatchObject({ reason: 'wrong_client' })
+    expect((await auth.verifyToken(await sign({ azp: 'pact.acme-crm-signs-in-with-cauthy' }), { jwks })).authorizedParty).toBe('pact.acme-crm-signs-in-with-cauthy')
+    expect((await auth.verifyToken(await sign(), { jwks })).userId).toBe(SUB)
+    // The link owns the client: a call cannot name another.
+    expect(() => auth.tokenVerifier({ jwks, clientId: 'acme-admin' })).toThrow(CauthyConfigError)
+  })
+
+  it('without a contract, checks no client unless one is named', async () => {
+    const auth = env({ tenantId: TENANT, audience: 'cauthy' })
+    expect((await auth.verifyToken(await sign({ azp: 'acme-admin' }), { jwks })).authorizedParty).toBe('acme-admin')
+    await expect(auth.verifyToken(await sign({ azp: 'acme-admin' }), { jwks, clientId: 'acme-crm' })).rejects.toMatchObject({ reason: 'wrong_client' })
+  })
+
   it('without a contract, takes the workspace id and the audience from the options', async () => {
     const auth = env({ tenantId: TENANT, audience: 'cauthy' })
     expect((await auth.verifyToken(await sign(), { jwks })).userId).toBe(SUB)

@@ -94,6 +94,17 @@ describe('an access token', () => {
     expect((await verifyToken(await sign(person), options)).authorizedParty).toBeUndefined()
   })
 
+  it('refuses a person\'s token issued through another client than the one named (R15)', async () => {
+    const named = { ...options, clientId: 'acme-web' }
+    await expect(verifyToken(await sign({ ...person, azp: 'acme-admin' }), named)).rejects.toMatchObject({ reason: 'wrong_client' })
+    await expect(verifyToken(await sign({ ...person, azp: 'Acme-Web' }), named)).rejects.toMatchObject({ reason: 'wrong_client' })
+    expect((await verifyToken(await sign({ ...person, azp: 'acme-web' }), named)).authorizedParty).toBe('acme-web')
+    // No azp: issued with no client named, and it passes.
+    expect((await verifyToken(await sign(person), named)).userId).toBe(person.sub)
+    // No client named: azp is not checked.
+    expect((await verifyToken(await sign({ ...person, azp: 'acme-admin' }), options)).authorizedParty).toBe('acme-admin')
+  })
+
   it('does not start without an audience or a workspace, or with a bad one', () => {
     const { audience: _a, tenantId: _t, ...bare } = options
     expect(() => createTokenVerifier({ ...bare, tenantId })).toThrow(CauthyConfigError)

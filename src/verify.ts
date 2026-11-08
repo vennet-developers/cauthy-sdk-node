@@ -44,7 +44,7 @@ export interface TokenIdentity {
 export type TokenRefusal =
   | 'no_token' | 'too_large' | 'malformed' | 'alg_not_allowed' | 'unsupported_header' | 'missing_kid' | 'unknown_kid' | 'weak_key'
   | 'bad_signature' | 'missing_claim' | 'invalid_claim' | 'wrong_issuer' | 'wrong_audience' | 'expired' | 'not_yet_valid'
-  | 'issued_in_future' | 'wrong_tenant' | 'system_token' | 'client_token' | 'anonymous_token'
+  | 'issued_in_future' | 'wrong_tenant' | 'system_token' | 'client_token' | 'anonymous_token' | 'wrong_client'
 
 /**
  * Cauthy's keys could not be fetched (or are not a key set): the token may be
@@ -100,6 +100,13 @@ export interface VerifyTokenOptions {
    * (rule R13). The identity then carries `clientId`.
    */
   allowClientTokens?: boolean
+  /**
+   * The client this backend signs people in through. When set, a person's
+   * token issued through another client (an `azp` naming another) is refused
+   * with `wrong_client` (rule R15); a token with no `azp` passes. In contract
+   * mode it is the link's sign-in client. Default: none, and `azp` is not checked.
+   */
+  clientId?: string
 }
 
 const MAX_TOKEN_BYTES = 8192
@@ -357,6 +364,8 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
     // A client's own token stands for a machine: present is the mark, as for sys.
     if ('token_use' in claims && !options.allowClientTokens) throw new CauthyTokenError('client_token')
     if (claims.anon === true && !options.allowAnonymous) throw new CauthyTokenError('anonymous_token')
+    // R15: a person's token issued through another client than the one named.
+    if (options.clientId && typeof claims.azp === 'string' && claims.azp !== '' && claims.azp !== options.clientId) throw new CauthyTokenError('wrong_client')
 
     return {
       userId: claims.sub as string,
