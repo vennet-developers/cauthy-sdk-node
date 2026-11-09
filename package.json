@@ -175,6 +175,8 @@
     "@types/node": "20.19.41",
     "@types/react": "19.2.17",
     "cauthy-auth": "0.42.0",
+    "cauthy-auth-0.41": "npm:cauthy-auth@0.41.0",
+    "cauthyhq-node-1.1": "npm:@cauthyhq/node@1.1.0",
     "express": "5.3.0",
     "fastify": "5.12.8",
     "hono": "4.13.13",

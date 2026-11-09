@@ -12,7 +12,7 @@
 // being signed in here — within minutes, with nothing to synchronise.
 
 import { clearParts, readCookies, readParts, writeCookie, writeParts, type CookieAttributes } from './cookies'
-import { keyOf, seal, unsealAny } from './seal'
+import { keyOf, seal, unsealAny, unsealIndexed } from './seal'
 import { failClosed, readContract, type PactStatus, type ResolvedContract } from './contract'
 import { JWKS_MAX_AGE_S, pactKeys, type PactKeys } from './keys'
 import { deriveKeys, type KeyRing } from './rootkey'
@@ -268,6 +268,8 @@ interface Keyed {
   legacySecret?: string
   /** While moving off PACT_ROOT_KEY: old sessions are read with it, and its RS256 keys stay published. */
   legacyRoot?: string
+  /** PACT_ROOT_KEY_PREVIOUS, when a root rotation was still open: its sessions are read too. */
+  legacyRootPrevious?: string
 }
 
 function byKey(given: CauthyOptions): Keyed | undefined {
@@ -296,12 +298,13 @@ function byKey(given: CauthyOptions): Keyed | undefined {
   // The two secrets of before, accepted beside the key only to read what they sealed.
   const legacySecret = env('CAUTHY_SECRET') || undefined
   const legacyRoot = env('PACT_ROOT_KEY') || undefined
+  const legacyRootPrevious = legacyRoot ? env('PACT_ROOT_KEY_PREVIOUS') || undefined : undefined
   if (legacySecret) deprecated('CAUTHY_SECRET beside CAUTHY_KEY', 'It is read only for sessions made before the move: remove it after the rotation window.')
   if (legacyRoot) deprecated('PACT_ROOT_KEY beside CAUTHY_KEY', 'It is read only for sessions made before the move: remove it, the keys option and its table after the rotation window.')
   if (given.keys && !(legacyRoot && given.contract)) {
     throw new CauthyConfigError('with CAUTHY_KEY the application keeps no key store: remove keys (it is read only beside PACT_ROOT_KEY and a contract, while moving)')
   }
-  return { key, previous, legacySecret, legacyRoot }
+  return { key, previous, legacySecret, legacyRoot, legacyRootPrevious }
 }
 
 /** A request from an origin the application did not register in Cauthy (CAUTHY_KEY). */
@@ -344,6 +347,16 @@ function byContract(given: CauthyOptions): { contract: ResolvedContract; root: s
 /** requestHeader: 'warn' says so once per process, whatever number of Cauthy instances run in it. */
 let toldOfHeader = false
 
+/** A session cookie no key opens is said once per process: people are being signed out. */
+let toldOfUnopened = false
+function toldUnopened(): void {
+  if (toldOfUnopened) return
+  toldOfUnopened = true
+  console.warn('@cauthyhq/node: a session cookie arrived that no key of this application opens; it was cleared and the person is signed out. ' +
+    'Moving to CAUTHY_KEY, keep the secret that sealed the old sessions (CAUTHY_SECRET, or PACT_ROOT_KEY and PACT_ROOT_KEY_PREVIOUS) beside it for the rotation window; ' +
+    'rotating the key, set CAUTHY_KEY_PREVIOUS.')
+}
+
 export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // CAUTHY_KEY first: with it, nothing else names Cauthy or the client.
   const keyed = byKey(given)
@@ -369,13 +382,14 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   fromKey?.signer.then(s => { signingKid = s.kid }, () => undefined)
   const derived = pacted ? deriveKeys(pacted.root, pacted.previous) : undefined
   const single: Promise<KeyRing> | undefined = derived || fromKey ? undefined : keyOf(secret).then(k => [k])
-  // Beside the key while moving: what CAUTHY_SECRET or PACT_ROOT_KEY sealed is
-  // still read, after the key's own entries. Writing always uses entry 0, the key's.
-  const legacyRings = keyed?.legacyRoot ? deriveKeys(keyed.legacyRoot) : undefined
+  // Beside the key while moving: what CAUTHY_SECRET or PACT_ROOT_KEY (and
+  // PACT_ROOT_KEY_PREVIOUS, a root rotation still open) sealed is still read,
+  // after the key's own entries. Writing always uses entry 0, the key's.
+  const legacyRings = keyed?.legacyRoot ? deriveKeys(keyed.legacyRoot, keyed.legacyRootPrevious) : undefined
   const legacySingle = keyed?.legacySecret ? keyOf(keyed.legacySecret) : undefined
   const withLegacy = async (own: Promise<KeyRing>, purpose: 'cookie' | 'flow'): Promise<KeyRing> => [
     ...(await own),
-    ...(legacyRings ? [(await legacyRings[purpose])[0]] : []),
+    ...(legacyRings ? await legacyRings[purpose] : []),
     ...(legacySingle ? [await legacySingle] : []),
   ]
   const cookieKeys = (fromKey ? withLegacy(fromKey.cookie, 'cookie') : derived?.cookie ?? single) as Promise<KeyRing>
@@ -563,13 +577,17 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   // ── The cookie ───────────────────────────────────────────────────────────
 
-  async function read(request: Request): Promise<{ had: Map<string, string>; value: Stored | null; present: boolean }> {
+  // `stale`: opened by a key that only reads (CAUTHY_KEY_PREVIOUS, or the
+  // CAUTHY_SECRET / PACT_ROOT_KEY of before the move), so it is sealed again
+  // with the current key on the first answer that can carry a cookie.
+  async function read(request: Request): Promise<{ had: Map<string, string>; value: Stored | null; present: boolean; stale: boolean }> {
     const had = readCookies(request.headers.get('cookie'))
     const raw = readParts(had, cookieName)
-    if (raw === null) return { had, value: null, present: false }
-    const value = await unsealAny<Stored>(raw, await cookieKeys)
+    if (raw === null) return { had, value: null, present: false, stale: false }
+    const opened = await unsealIndexed<Stored>(raw, await cookieKeys)
+    const value = opened?.value ?? null
     const sound = value !== null && typeof value.at === 'string' && typeof value.rt === 'string' && typeof value.exp === 'number'
-    return { had, value: sound ? value : null, present: true }
+    return { had, value: sound ? value : null, present: true, stale: sound && opened!.index > 0 }
   }
 
   async function write(request: Request, s: Stored, had: Map<string, string>): Promise<string[]> {
@@ -620,14 +638,17 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   }
 
   async function resolve(request: Request): Promise<Resolved> {
-    const { had, value, present } = await read(request)
+    const { had, value, present, stale } = await read(request)
     if (value === null) {
       // A cookie this key did not make (a rotated secret, a tampered value) is cleared.
+      if (present) toldUnopened()
       return { session: null, status: 'unauthenticated', cookies: present ? clearParts(cookieName, attrs(request, 0), had) : [] }
     }
     // A session made before the link required a verified address does not outlive the requirement.
     if (unverified(value.u)) return { session: null, status: 'unauthenticated', cookies: clearParts(cookieName, attrs(request, 0), had) }
-    if (fresh(value)) return { session: toSession(value), status: 'authenticated', cookies: [] }
+    // Sealed with a key that only reads: sealed again now with the current
+    // one, so the session outlives the removal of the old secret.
+    if (fresh(value)) return { session: toSession(value), status: 'authenticated', cookies: stale ? await write(request, value, had) : [] }
 
     const renewed = await renew(value)
     if (renewed === 'ended') {

@@ -18,6 +18,6 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'examples/**/*.test.ts'],
     // cauthy-auth 0.42's ESM build imports `next/headers` without an extension,
     // which Node's own resolver refuses; Vite resolves it.
-    server: { deps: { inline: ['cauthy-auth'] } },
+    server: { deps: { inline: ['cauthy-auth', 'cauthy-auth-0.41', 'cauthyhq-node-1.1'] } },
   },
 })

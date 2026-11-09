@@ -33,9 +33,14 @@ export async function unseal<T>(sealed: string, key: Uint8Array): Promise<T | nu
 
 /** The value sealed with any key of the ring (the newest first), or null. */
 export async function unsealAny<T>(sealed: string, ring: Uint8Array[]): Promise<T | null> {
-  for (const key of ring) {
-    const value = await unseal<T>(sealed, key)
-    if (value !== null) return value
+  return (await unsealIndexed<T>(sealed, ring))?.value ?? null
+}
+
+/** The value and the position in the ring of the key that opened it, or null. */
+export async function unsealIndexed<T>(sealed: string, ring: Uint8Array[]): Promise<{ value: T; index: number } | null> {
+  for (let index = 0; index < ring.length; index++) {
+    const value = await unseal<T>(sealed, ring[index])
+    if (value !== null) return { value, index }
   }
   return null
 }

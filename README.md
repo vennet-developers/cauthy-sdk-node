@@ -110,8 +110,10 @@ new is written with it.
 
 **Moving from the variables of 1.1:** on the application's card, **Move to
 CAUTHY_KEY**. Deploy with `CAUTHY_KEY` and keep `CAUTHY_SECRET` for the window
-(old sessions stay readable; one warning says to remove it), remove the other
-variables, then **Remove the secret**. The variables of 1.1 and `PACT_ROOT_KEY`
+(old sessions stay readable, and each is sealed again with the key the first
+time it is read; one warning says to remove it), remove the other variables,
+then **Remove the secret**. A session nobody used during the window is lost
+with the secret. The variables of 1.1 and `PACT_ROOT_KEY`
 still work in 1.x with one `DeprecationWarning` per process and leave in 2.0.
 
 ## Verifying a token
@@ -195,7 +197,7 @@ export const auth = createCauthy({ contract: { graph, system: 'acme-crm' } })   
 
 The key proves the link's service client (`pact.<link>.service`); people sign in through its public client (`pact.<link>`). The key must name the graph's Cauthy (`key_contract_issuer` otherwise). The application publishes the key's public half at the contract's `jwks_url` path (`/.well-known/pact-jwks.json` by default), and the previous key's too during a rotation. The Express, Hono and Fastify adapters route that path to the handler as they do `/api/auth`, so those need no route of their own for it. **Next.js and TanStack Start still need a route file** for it that calls `auth.handler(request)`.
 
-The 1.1 way (`PACT_ROOT_KEY` and `keys: postgresKeyStore(query)`) keeps working through 1.x with a deprecation warning. Moving: generate `CAUTHY_KEY` on the application's card, deploy it with `PACT_ROOT_KEY` and the `keys` option still beside it for the window (old sessions stay readable, its RS256 keys stay published beside the new Ed25519 key), then remove `PACT_ROOT_KEY`, the option and the table.
+The 1.1 way (`PACT_ROOT_KEY` and `keys: postgresKeyStore(query)`) keeps working through 1.x with a deprecation warning. Moving: generate `CAUTHY_KEY` on the application's card, deploy it with `PACT_ROOT_KEY` (and `PACT_ROOT_KEY_PREVIOUS`, if a root rotation is open) and the `keys` option still beside it for the window (old sessions stay readable and are sealed again with the key the first time they are read, its RS256 keys stay published beside the new Ed25519 key), then remove `PACT_ROOT_KEY`, the option and the table. A session nobody used during the window is lost with the root key.
 
 It refuses to start when any variable `CAUTHY_KEY` replaces is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, when a workspace named by id is pinned to a different `tenant_id`, when `system_proof` is not `off`, `auto` or `required`, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session. See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
 
