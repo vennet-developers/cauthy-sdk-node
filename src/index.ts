@@ -1,8 +1,12 @@
-export { createCauthy, type Cauthy, type CauthyPact, type Resolved } from './cauthy'
+export { createCauthy, KEY_REPLACES, type Cauthy, type CauthyPact, type Resolved } from './cauthy'
+export { composeKey, parseKey, type CauthyKey } from './cauthykey'
+export { type Identity } from './identity'
 export { failClosed, readContract, STANDARD_VARIABLES, type ContractOptions, type PactItem, type PactStatus, type ResolvedContract } from './contract'
 export { type KeyStore, type PactKeys, type StoredKey } from './keys'
 export {
   CauthyConfigError,
+  CauthyKeyError,
+  type CauthyKeyReason,
   type CauthyOptions,
   type CheckQuestion,
   type CheckResult,

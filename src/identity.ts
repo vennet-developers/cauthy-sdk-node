@@ -28,7 +28,7 @@ export interface IdentityOptions {
   /** Backoff between first attempts, ms; the last repeats. */
   retryMs?: number[]
   /** For the log line when Cauthy refuses the key. */
-  kid?: string
+  kid?: string | (() => string | undefined)
   log?: (message: string) => void
 }
 
@@ -39,6 +39,10 @@ export interface IdentityCache {
   current(): Identity | undefined
   /** Revalidates now; keeps the last answer on any failure. */
   refresh(): Promise<void>
+  /** True while there is no answer yet and the last attempt failed (the retries go on). */
+  failing(): boolean
+  /** Settles when the first-answer attempt now out ends: true when it brought the answer. */
+  attempt(): Promise<boolean>
 }
 
 export const REVALIDATE_MS = 300_000
@@ -58,6 +62,10 @@ export function createIdentity(o: IdentityOptions): IdentityCache {
   let first: Promise<Identity> | undefined
   let refused: CauthyApiError | undefined
   let refreshing: Promise<void> | undefined
+  let failed = false
+  let attemptEnded: ((ok: boolean) => void) | undefined
+  let attemptOut: Promise<boolean> | undefined
+  const kid = () => (typeof o.kid === 'function' ? o.kid() : o.kid) ?? '?'
 
   async function ask(): Promise<Identity | 'same'> {
     const headers: Record<string, string> = { authorization: `Bearer ${await o.token()}`, accept: 'application/json' }
@@ -77,8 +85,8 @@ export function createIdentity(o: IdentityOptions): IdentityCache {
     const code = (e as { code?: string } | null)?.code
     if (code !== 'invalid_client' && code !== 'client_inactive') return undefined
     const message = code === 'client_inactive'
-      ? `Cauthy says this application's client is no longer active (kid ${o.kid ?? '?'}). Connect it again in Cauthy's dashboard.`
-      : `Cauthy refuses this application's key (kid ${o.kid ?? '?'}): it was revoked or never registered. Make a new key in Cauthy's dashboard.`
+      ? `Cauthy says this application's client is no longer active (kid ${kid()}). Connect it again in Cauthy's dashboard.`
+      : `Cauthy refuses this application's key (kid ${kid()}): it was revoked or never registered. Make a new key in Cauthy's dashboard.`
     return new CauthyApiError(503, 'misconfigured', message)
   }
 
@@ -92,13 +100,18 @@ export function createIdentity(o: IdentityOptions): IdentityCache {
 
   async function firstAnswer(): Promise<Identity> {
     for (let attempt = 0; ; attempt++) {
+      attemptOut = new Promise<boolean>(resolve => { attemptEnded = resolve })
       try {
         const got = await ask()
         if (got !== 'same') held = got
         checkedAt = now()
+        failed = false
+        attemptEnded?.(true)
         return held as Identity
       } catch (e) {
         const r = refusalOf(e)
+        failed = true
+        attemptEnded?.(false)
         if (r) throw refuse(r)
         await sleep(retry[Math.min(attempt, retry.length - 1)])
       }
@@ -130,5 +143,7 @@ export function createIdentity(o: IdentityOptions): IdentityCache {
     },
     current: () => held,
     refresh: () => (refreshing ??= refresh().finally(() => { refreshing = undefined })),
+    failing: () => held === undefined && failed && refused === undefined,
+    attempt: () => (held !== undefined ? Promise.resolve(true) : attemptOut ?? Promise.resolve(false)),
   }
 }

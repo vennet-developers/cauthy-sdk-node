@@ -1,5 +1,16 @@
 /** How an application is set up to sign its people in with Cauthy. */
 export interface CauthyOptions {
+  /**
+   * The application's CAUTHY_KEY, made in Cauthy's dashboard: Cauthy's
+   * address, the application's client and its secret, in one value. Default:
+   * `CAUTHY_KEY`. With it nothing else is read: the workspace, the system and
+   * the application's addresses come from Cauthy (`GET /v1/connect/self`),
+   * and passing `issuer`, `clientId`, `clientSecret`, `secret`, `system`,
+   * `tenant`, `audience`, `tenantId`, `systemKey` or `rootKey` is refused.
+   */
+  key?: string
+  /** The key being replaced, during a rotation: read, never written with. Default: `CAUTHY_KEY_PREVIOUS`. */
+  keyPrevious?: string
   /** Cauthy's public address, e.g. `https://id.example.com`. Default: `CAUTHY_ISSUER`. */
   issuer?: string
   /** The application's OAuth client id. Default: `CAUTHY_CLIENT_ID`. */

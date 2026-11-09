@@ -13,6 +13,7 @@
 
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose'
 import type { JsonValue } from './types'
+import { parseKey } from './cauthykey'
 import { withoutTrailingSlashes } from './url'
 
 /** Something that happened in Cauthy, as a subscriber is told. Moments are UTC. */
@@ -39,7 +40,7 @@ export class CauthyWebhookError extends Error {
 }
 
 export interface VerifyWebhookOptions {
-  /** Cauthy's address. Default: `CAUTHY_ISSUER`. */
+  /** Cauthy's address. Default: the one `CAUTHY_KEY` names, else `CAUTHY_ISSUER`. */
   issuer?: string
   /**
    * This endpoint's own public address, exactly as it is registered in Cauthy.
@@ -104,7 +105,9 @@ const hex = (s: unknown) => (typeof s === 'string' && s !== '' ? s : undefined)
  * this endpoint just now: answer it 401 and nothing else.
  */
 export async function verifyWebhook(request: Request, options: VerifyWebhookOptions = {}): Promise<CauthyEvent> {
-  const env = typeof process !== 'undefined' ? process.env?.CAUTHY_ISSUER : undefined
+  // CAUTHY_KEY names Cauthy; without it, CAUTHY_ISSUER does (deprecated).
+  const key = typeof process !== 'undefined' ? process.env?.CAUTHY_KEY : undefined
+  const env = key ? parseKey(key).issuer : typeof process !== 'undefined' ? process.env?.CAUTHY_ISSUER : undefined
   const issuer = withoutTrailingSlashes(options.issuer ?? env ?? '')
   if (issuer === '') throw new CauthyWebhookError('issuer (CAUTHY_ISSUER) is not set')
   const signature = request.headers.get('x-cauthy-signature-jwt')

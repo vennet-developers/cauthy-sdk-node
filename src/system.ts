@@ -12,6 +12,7 @@ import { deadline, isTimeout } from './deadline'
 import { checkResultOf, checkWire, type CatalogResource, type PolicyRole } from './permissions'
 import { fromWire, type CauthyTheme } from './theme'
 import { CauthyConfigError, type CheckQuestion, type CheckResult, type JsonValue } from './types'
+import type { Signer } from './keyderive'
 import { withoutTrailingSlashes } from './url'
 
 const ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
@@ -61,6 +62,14 @@ export interface SystemOptions {
   keys?: import('./keys').PactKeys
   /** The client the keys prove: the system's own, beside the sign-in client. */
   keysClientId?: string
+  /**
+   * CAUTHY_KEY's Ed25519 key (key/cauthy-key.md §6) and the client it proves:
+   * every token is asked with an EdDSA assertion. Takes the place of `key`,
+   * `keys` and the secret.
+   */
+  signer?: { clientId: string; signer: Promise<Signer> }
+  /** The system `check` asks about when it is known only later (CAUTHY_KEY: from Cauthy's answer). */
+  currentSystem?: () => string
   fetch?: typeof fetch
   /** How long a call to Cauthy may take before it fails with `503 unavailable`, in milliseconds. Default: 2000. */
   timeoutMs?: number
@@ -234,6 +243,7 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
   // Checked when it is first used, not when it is made: an application that
   // only signs people in never needs any of this.
   function configured(): void {
+    if (given.signer) return
     if (!/^https?:\/\//.test(issuer)) throw new CauthyConfigError('issuer (CAUTHY_ISSUER) must be Cauthy\'s address')
     if (clientId === '') throw new CauthyConfigError('clientId (CAUTHY_CLIENT_ID) is required')
     if (given.keys) {
@@ -265,9 +275,13 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
 
   async function ask(): Promise<string> {
     configured()
-    const self = given.keys ? (given.keysClientId as string) : key?.clientId || clientId
+    const self = given.signer ? given.signer.clientId : given.keys ? (given.keysClientId as string) : key?.clientId || clientId
     const form = new URLSearchParams({ grant_type: 'client_credentials', client_id: self })
-    if (given.keys || key) {
+    if (given.signer) {
+      const s = await given.signer.signer
+      form.set('client_assertion_type', ASSERTION_TYPE)
+      form.set('client_assertion', await s.assertion(self, tokenEndpoint))
+    } else if (given.keys || key) {
       const signer = given.keys ? await given.keys.current() : { kid: (key as SystemKey).keyId, privateKey: await signingKey() }
       const assertion = await new SignJWT({})
         .setProtectedHeader({ alg: 'RS256', kid: signer.kid })
@@ -374,7 +388,7 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
       },
     },
     async check(q) {
-      const system = q.system ?? ownSystem
+      const system = q.system ?? (ownSystem || given.currentSystem?.() || '')
       if (system === '') throw new CauthyConfigError('name the system to check in (system, or CAUTHY_SYSTEM)')
       return checkResultOf(await data('POST', `/v1/systems/${id(system)}/check`, { organization_id: q.organizationId, user_id: q.userId, ...checkWire(q) }))
     },
