@@ -254,3 +254,15 @@ export class CauthyConfigError extends Error {
     this.name = 'CauthyConfigError'
   }
 }
+
+/** Why a CAUTHY_KEY was refused (key/cauthy-key.md §3, §8, §9). */
+export type CauthyKeyReason = 'key_format' | 'key_version' | 'key_checksum' | 'key_issuer' | 'key_client' | 'key_secret'
+  | 'key_contract_issuer' | 'key_previous_mismatch'
+
+/** A refused CAUTHY_KEY. The message names the reason, never the key. */
+export class CauthyKeyError extends CauthyConfigError {
+  constructor(readonly reason: CauthyKeyReason, message: string) {
+    super(`CAUTHY_KEY: ${message} (${reason})`)
+    this.name = 'CauthyKeyError'
+  }
+}
