@@ -12,25 +12,20 @@ Node 20 or later. ESM and CommonJS. One dependency: `jose`.
 
 ## The five-minute path
 
-**1. Register the application in Cauthy's dashboard** (Applications, New application) and add this redirect URI: `${CAUTHY_BASE_URL}/api/auth/callback`, e.g. `http://localhost:3000/api/auth/callback`. The dashboard shows the client id.
+**1. Connect the application in Cauthy's dashboard** (**Integrate → Applications → Connect an application**), with its address, e.g. `http://localhost:3000`. The dashboard makes the application's key in your browser and shows it once, as one line.
 
-**2. Set the environment**: the five variables the dashboard hands out when you connect the application. The [five-minute guide](https://cauthy.docs.vennet.dev/en/guide/get-started/) walks through it; a system joining Vennet's network by contract uses `npx @cauthyhq/cli init` instead.
+**2. Put that line in `.env`** (keep it out of git):
 
-| Variable | Where it comes from |
-| --- | --- |
-| `CAUTHY_ISSUER` | Your Cauthy's address, e.g. `https://id.example.com` |
-| `CAUTHY_CLIENT_ID` | The client id the dashboard showed in step 1 |
-| `CAUTHY_CLIENT_SECRET` | Only if you registered the application as a confidential client in the dashboard: the client secret it showed once. Public clients need none, and neither does contract mode |
-| `CAUTHY_SECRET` | You make it: `openssl rand -base64 32`. It encrypts the session cookie; keep it out of git |
-| `CAUTHY_TENANT` | Your workspace's slug in Cauthy, e.g. `acme`, for the sign-in screens your application draws itself |
-| `CAUTHY_BASE_URL` | Your application's public address, e.g. `http://localhost:3000` |
+    CAUTHY_KEY=cauthy1.…
+
+That is the whole environment: Cauthy's address, the application's client and its secret are in the key; the workspace, the system and the application's addresses are asked of Cauthy when it starts. The [five-minute guide](https://cauthy.docs.vennet.dev/en/guide/get-started/) walks through it.
 
 **3. Create it and mount it.**
 
 ```ts
 // auth.ts
 import { createCauthy } from '@cauthyhq/node'
-export const auth = createCauthy()   // reads the variables above
+export const auth = createCauthy()   // reads CAUTHY_KEY
 ```
 
 ```ts
@@ -80,6 +75,45 @@ await auth.organizations(session)                                  // the person
 
 See [`examples/acme-crm`](examples/acme-crm) for a whole application.
 
+## CAUTHY_KEY
+
+One value: Cauthy's address, the application's client and a 32-byte secret,
+with a checksum (`cauthy1.<issuer>.<client>.<secret>.<check>`, specified in
+the spec's [`key/cauthy-key.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/key/cauthy-key.md)).
+The SDK derives the session-cookie keys and an Ed25519 key from it, proves
+itself to Cauthy with that key (`private_key_jwt`, a fresh assertion on every
+token and revoke call; no client secret is ever sent), and asks Cauthy who it
+is (`GET /v1/connect/self`). Cauthy keeps only the public half.
+
+| When | What happens |
+| --- | --- |
+| `createCauthy()` | The key is parsed at once: a damaged paste throws `CauthyKeyError` naming the reason (`key_format`, `key_checksum`, …), never the key. Then Cauthy is asked who the application is, in the background |
+| Cauthy not reachable yet | The server starts; `/api/auth/*` answers `503 unavailable` until the answer comes (retried from 1 to 30 seconds) |
+| Cauthy refuses the key (revoked, never registered) | Logged once with the key's `kid`; `/api/auth/*` answers `503 misconfigured` |
+| Running | The answer is kept and asked again every 5 minutes; while Cauthy is down the last one stands |
+| `await auth.ready()` | The identity, waited for: call it at startup to fail early |
+
+The redirect URI is built from the request's origin when it is one of the
+application's addresses in Cauthy, from the only one when there is just one,
+and the request is refused with `400 unknown_origin` otherwise. `baseURL`
+still overrides it. Beside `CAUTHY_KEY` the variables it replaces
+(`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, `CAUTHY_CLIENT_SECRET`, `CAUTHY_SYSTEM`,
+`CAUTHY_TENANT`, `CAUTHY_SYSTEM_KEY`, `CAUTHY_SYSTEM_KEY_ID`, `CAUTHY_BASE_URL`,
+`CAUTHY_AUDIENCE`, `CAUTHY_TENANT_ID`) and the options they stand for are
+refused at startup, naming them.
+
+**Lost or leaked:** make a new key on the application's card and revoke the
+old one. **Rotating:** move the current value to `CAUTHY_KEY_PREVIOUS`, put
+the new one in `CAUTHY_KEY`, deploy, and remove `CAUTHY_KEY_PREVIOUS` after
+the window: sessions made with the previous key are still read, and nothing
+new is written with it.
+
+**Moving from the variables of 1.1:** on the application's card, **Move to
+CAUTHY_KEY**. Deploy with `CAUTHY_KEY` and keep `CAUTHY_SECRET` for the window
+(old sessions stay readable; one warning says to remove it), remove the other
+variables, then **Remove the secret**. The variables of 1.1 and `PACT_ROOT_KEY`
+still work in 1.x with one `DeprecationWarning` per process and leave in 2.0.
+
 ## Verifying a token
 
 For an API that receives Cauthy access tokens from somewhere other than the browser's cookie:
@@ -88,15 +122,22 @@ For an API that receives Cauthy access tokens from somewhere other than the brow
 import { auth } from './auth'
 
 // Where each value comes from:
-//   issuer   the instance's own (CAUTHY_ISSUER, or the contract)
-//   tenantId by contract, the link's tenant_id; otherwise the `tenantId` option or CAUTHY_TENANT_ID
-//   audience the `audience` option or CAUTHY_AUDIENCE: your Cauthy's JWT_AUDIENCE (Cauthy has no default for it)
+//   issuer   the instance's own (CAUTHY_KEY, or the contract; deprecated: CAUTHY_ISSUER)
+//   tenantId by contract, the link's tenant_id; on CAUTHY_KEY, Cauthy's answer; otherwise `tenantId` or CAUTHY_TENANT_ID (deprecated)
+//   audience on CAUTHY_KEY, Cauthy's answer; otherwise `audience` or CAUTHY_AUDIENCE (deprecated): your Cauthy's JWT_AUDIENCE
 //   clientId by contract, the link's sign-in client: a person's token issued through another is refused (wrong_client)
 const verify = auth.tokenVerifier()          // throws CauthyConfigError now if one is missing
 const who = await verify(request)            // or: await auth.verifyToken(request)
 ```
 
-Standalone, with no instance, everything is explicit:
+On `CAUTHY_KEY`, the issuer, the audience and the workspace are Cauthy's answer: `auth.tokenVerifier()` waits for it. With no instance:
+
+```ts
+import { createVerifierFromEnv } from '@cauthyhq/node'
+const verify = await createVerifierFromEnv()   // reads CAUTHY_KEY; asks Cauthy once
+```
+
+Standalone, with no instance and no key, everything is explicit:
 
 ```ts
 import { createTokenVerifier } from '@cauthyhq/node'
@@ -143,19 +184,20 @@ Everything that behaves differently from 0.42:
 
 ## Contract mode
 
-With a Pact link, everything comes from the vendored graph and one secret, `PACT_ROOT_KEY`:
+A contract is a layer on top of an application that runs on `CAUTHY_KEY`: the environment stays that one line, and the vendored graph adds the link (system proof, drift, the link's policies). No key store and no table:
 
 ```ts
 import { createCauthy } from '@cauthyhq/node'
-import { postgresKeyStore } from '@cauthyhq/node/keys'
 import graph from './contracts/graph.json'
 
-export const auth = createCauthy({ contract: { graph, system: 'acme-crm' }, keys: postgresKeyStore(query), audience: 'cauthy' })
+export const auth = createCauthy({ contract: { graph, system: 'acme-crm' } })   // and CAUTHY_KEY in the environment
 ```
 
-By contract the application also publishes its own key at the contract's `jwks_url` path (`/.well-known/pact-jwks.json` by default). The Express, Hono and Fastify adapters route that path to the handler as they do `/api/auth`, so those need no route of their own for it. **Next.js and TanStack Start still need a route file** for it that calls `auth.handler(request)`.
+The key proves the link's service client (`pact.<link>.service`); people sign in through its public client (`pact.<link>`). The key must name the graph's Cauthy (`key_contract_issuer` otherwise). The application publishes the key's public half at the contract's `jwks_url` path (`/.well-known/pact-jwks.json` by default), and the previous key's too during a rotation. The Express, Hono and Fastify adapters route that path to the handler as they do `/api/auth`, so those need no route of their own for it. **Next.js and TanStack Start still need a route file** for it that calls `auth.handler(request)`.
 
-It refuses to start when any `CAUTHY_*` variable of the standard mode is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, when a workspace named by id is pinned to a different `tenant_id`, when `system_proof` is not `off`, `auto` or `required`, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session. See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
+The 1.1 way (`PACT_ROOT_KEY` and `keys: postgresKeyStore(query)`) keeps working through 1.x with a deprecation warning. Moving: generate `CAUTHY_KEY` on the application's card, deploy it with `PACT_ROOT_KEY` and the `keys` option still beside it for the window (old sessions stay readable, its RS256 keys stay published beside the new Ed25519 key), then remove `PACT_ROOT_KEY`, the option and the table.
+
+It refuses to start when any variable `CAUTHY_KEY` replaces is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, when a workspace named by id is pinned to a different `tenant_id`, when `system_proof` is not `off`, `auto` or `required`, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session. See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
 
 ## Options added in 1.0
 
@@ -169,14 +211,23 @@ It refuses to start when any `CAUTHY_*` variable of the standard mode is also se
 
 ## Testing your application
 
-`@cauthyhq/node/testing` is a Cauthy that lives in memory (`FakeCauthy`) and a browser that keeps cookies (`Browser`), for the tests of your own application. **Test-only**: it signs in whoever it was told about and checks nothing a real Cauthy does. Do not import it from production code.
+`@cauthyhq/node/testing` is a Cauthy that lives in memory (`FakeCauthy`) and a browser that keeps cookies (`Browser`), for the tests of your own application. **Test-only**: it signs in whoever it was told about and checks little a real Cauthy does. Do not import it from production code.
+
+```ts
+const fake = new FakeCauthy()
+fake.appUrls = ['http://localhost:3000']
+const auth = createCauthy({ key: await fake.issueKey(), fetch: fake.fetch })
+```
+
+`issueKey(issuer?)` makes a `CAUTHY_KEY` for `fake.clientId` and registers its public half, as the dashboard does; from then on that client must prove itself with the key's assertion on every token and revoke call. `revokeKey(kid)` revokes it. `serveFakeCauthy(fake, port)` serves it over HTTP; issue the key with that address (`http://127.0.0.1:<port>`) for a process outside yours.
 
 ## Conformance
 
-CI runs the auth-bff conformance suite at level `strict` against `examples/acme-crm` on an in-memory Cauthy, and the spec's token vectors against `verifyToken`:
+The auth-bff conformance suite runs at level `strict` against `examples/acme-crm` on an in-memory Cauthy, the application on `CAUTHY_KEY` alone (with the runner's `key.*` checks); the spec's token vectors run against `verifyToken`, and its `CAUTHY_KEY` vectors against the parser and the derivation:
 
     SPEC_DIR=../cauthy-sdk-spec LEVEL=strict npm run conformance
     SPEC_DIR=../cauthy-sdk-spec LEVEL=switches npm run conformance   # also the dashboard switches, on the in-memory Cauthy
+    SPEC_DIR=../cauthy-sdk-spec MODE=variables npm run conformance   # the 1.1 way, for a runner without --key-env
     SPEC_DIR=../cauthy-sdk-spec npm run vectors
 
 ## Security

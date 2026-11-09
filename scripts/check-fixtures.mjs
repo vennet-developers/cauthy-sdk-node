@@ -7,7 +7,7 @@
 //   node scripts/check-fixtures.mjs [directory]     # default: the repository
 //
 // The company's own name is allowed as a phrase in content (a repository URL,
-// a contact); only content is read, never paths.
+// a contact, the docs site); only content is read, never paths.
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -29,7 +29,7 @@ const IDS = new Set([
 ])
 const LENGTHS = [...new Set(WORDS.map(([n]) => n))]
 const HASHES = new Set(WORDS.map(([, x]) => x))
-const ALLOWED = /vennet[- ]developers/g
+const ALLOWED = /vennet[- ]developers|cauthy\.docs\.vennet\.dev/g
 const SKIP = new Set(['node_modules', '.git', 'dist', '.conformance'])
 
 const here = dirname(fileURLToPath(import.meta.url))

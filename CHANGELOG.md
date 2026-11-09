@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.0
+
+One variable for every application: `CAUTHY_KEY`.
+
+### Added
+
+- **`CAUTHY_KEY`** (`key/cauthy-key.md` of the spec): Cauthy's address, the application's client and a 32-byte secret in one value, made by Cauthy's dashboard in the browser. `createCauthy()` reads it and nothing else: the session-cookie keys and an Ed25519 key are derived from it, the application authenticates with `private_key_jwt` (`EdDSA`) on every token and revoke call, never with a client secret, and asks Cauthy who it is (`GET /v1/connect/self`: workspace, system, addresses), revalidated every 5 minutes. The `key` option takes it in code.
+- **Startup**: a damaged key throws `CauthyKeyError` at once with its reason (`key_format`, `key_version`, `key_checksum`, `key_issuer`, `key_client`, `key_secret`, `key_contract_issuer`, `key_previous_mismatch`), never the value. Cauthy unreachable: the server starts and `/api/auth/*` answers `503 unavailable` until Cauthy answers. Cauthy refusing the key: `503 misconfigured`, logged once with the `kid`. `auth.ready()` awaits the identity.
+- **The redirect URI** comes from the request's origin when it is one of the application's addresses in Cauthy, else the only one; otherwise `400 unknown_origin`.
+- **A contract on top of the key**: `createCauthy({ contract: { graph, system } })` with `CAUTHY_KEY` needs no key store and no table. The key proves the link's service client; the JWKS route publishes the key's Ed25519 public half (and the previous key's during a rotation). The key must name the graph's Cauthy.
+- **`CAUTHY_KEY_PREVIOUS`** (`keyPrevious`) for rotations: its sessions are read, never written. `CAUTHY_SECRET` and `PACT_ROOT_KEY` beside the key are read-only too while an application moves (one warning each); with `PACT_ROOT_KEY`, a contract and `keys`, the old RS256 keys stay published beside the new one.
+- **`createVerifierFromEnv()`**: a token verifier from `CAUTHY_KEY` alone (issuer, audience and workspace from Cauthy).
+- `verifyWebhook` takes the issuer from `CAUTHY_KEY` when it is set.
+- `parseKey`, `composeKey`, `KEY_REPLACES`, `CauthyKeyError`, and the types `CauthyKey`, `CauthyKeyReason`, `Identity`.
+- **`@cauthyhq/node/testing`**: `FakeCauthy.issueKey(issuer?, { clientId? })`, `revokeKey(kid)`, `registeredKids()`, `appUrls`, `system`, `tenantId`, `contract`, `oauthRequests`. The fake checks Ed25519 assertions (signature, `kid`, `iss`/`sub`/`aud`, lifetime, replay) and answers `GET /v1/connect/self`, with `ETag`.
+
+### Refused beside `CAUTHY_KEY`
+
+`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, `CAUTHY_CLIENT_SECRET`, `CAUTHY_SYSTEM`, `CAUTHY_TENANT`, `CAUTHY_SYSTEM_KEY`, `CAUTHY_SYSTEM_KEY_ID`, `CAUTHY_BASE_URL`, `CAUTHY_AUDIENCE`, `CAUTHY_TENANT_ID`, and the options `issuer`, `clientId`, `clientSecret`, `secret`, `system`, `tenant`, `audience`, `tenantId`, `systemKey`, `rootKey` (and `keys`, except beside `PACT_ROOT_KEY` with a contract while moving).
+
+### Deprecated (removed in 2.0)
+
+One `DeprecationWarning` (code `CAUTHY_DEPRECATED`) per process each: configuring with the `CAUTHY_*` variables or their options; `PACT_ROOT_KEY[_PREVIOUS]` and the `keys` store; a verifier reading `CAUTHY_ISSUER`, `CAUTHY_AUDIENCE` or `CAUTHY_TENANT_ID`. They keep working through 1.x.
+
+### Unchanged
+
+Applications on the 1.1 variables or on `PACT_ROOT_KEY` work as before, apart from the warning. The MCP variables (`CAUTHY_MCP_*`) are not part of this change.
+
 ## 1.1.0 — security release
 
 Cauthy now marks the tokens a machine holds, and names the client a person's token was issued through. This release makes `verifyToken` use those marks. Refusing a machine's token where a person is expected is a fix, not a break, so it ships as a minor version: upgrade.

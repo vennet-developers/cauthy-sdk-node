@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createCauthy } from '@cauthyhq/node'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -10,16 +11,22 @@ afterEach(async () => {
   close = undefined
 })
 
+/** Acme CRM on CAUTHY_KEY alone: a key the in-memory Cauthy issued for it, as the dashboard would. */
 async function serve() {
   const cauthy = new FakeCauthy()
   cauthy.ownScreens = true
   cauthy.users.set('u-member', { sub: 'u-member', email: 'member@example.com', name: 'Acme Member', active: true, restricted: false })
   cauthy.passwords.set('member@example.com', 'a-long-test-password')
-  const auth = createCauthy({ issuer: cauthy.issuer, clientId: 'acme-crm', secret: 'a-secret-of-at-least-thirty-two-characters', tenant: cauthy.tenant, fetch: cauthy.fetch })
-  const server = acmeApp(auth).listen(0, '127.0.0.1')
+  // The address first: Cauthy knows the application by it (app_urls).
+  const server = createServer()
+  server.listen(0, '127.0.0.1')
   await new Promise((r) => server.once('listening', r))
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  cauthy.appUrls = [origin]
+  const auth = createCauthy({ key: await cauthy.issueKey(), fetch: cauthy.fetch })
+  server.on('request', acmeApp(auth))
   close = () => new Promise((r) => server.close(() => r()))
-  return { auth, origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}` }
+  return { auth, origin }
 }
 
 const post = (origin: string, path: string, body: string) =>

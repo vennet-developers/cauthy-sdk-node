@@ -26,7 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      # The runner is pinned by the commit of conformance/v0.4.0.
+      # The runner is pinned by the commit of conformance/v0.4.0. It has no
+      # --key-env yet, so the target runs the 1.1 way (MODE: variables). When
+      # cauthy-sdk-spec tags the conformance release with the key.* checks,
+      # move this pin to it and drop MODE: the target then runs on CAUTHY_KEY.
       - name: cauthy-sdk-spec, pinned
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -47,6 +50,7 @@ jobs:
         env:
           SPEC_DIR: ${{ github.workspace }}/spec
           LEVEL: switches
+          MODE: variables
           REPORT: ${{ runner.temp }}/conformance-switches.json
       - name: token vectors, every one must agree
         run: npm run vectors

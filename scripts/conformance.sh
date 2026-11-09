@@ -9,11 +9,21 @@
 # At LEVEL=switches the in-memory Cauthy also serves its admin API (on
 # CONFORMANCE_CAUTHY_PORT, default the target's port + 1) and the runner
 # flips the tenant's dashboard switches through it.
+#
+# The target runs on CAUTHY_KEY alone, a key the in-memory Cauthy issues for
+# acme-crm: the runner gets it through CONFORMANCE_KEY (--key-env) and adds
+# the key.* checks. It is written to a 0600 file for the run, removed on exit,
+# and never printed. MODE=variables runs the 1.1 way (CAUTHY_ISSUER, …), with
+# no key.* checks.
+#
+# The key.* checks need the runner of cauthy-sdk-spec's feat/cauthy-key (the
+# conformance tag after v0.4.0): with an older runner, run MODE=variables.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 spec=${SPEC_DIR:-$root/../cauthy-sdk-spec}
 level=${LEVEL:-strict}
+mode=${MODE:-key}
 port=${CONFORMANCE_PORT:-3999}
 cauthy_port=${CONFORMANCE_CAUTHY_PORT:-$((port + 1))}
 report=${REPORT:-$root/conformance-report.json}
@@ -35,6 +45,17 @@ CONFORMANCE_PORT=$port
 CONFORMANCE_CAUTHY_PORT=$cauthy_port
 export CONFORMANCE_PASSWORD CONFORMANCE_PORT CONFORMANCE_CAUTHY_PORT
 switches=""
+keyflags=""
+CONFORMANCE_KEY_FILE=""
+if [ "$mode" = variables ]; then
+  CONFORMANCE_MODE=variables
+  export CONFORMANCE_MODE
+else
+  CONFORMANCE_KEY_FILE=$root/.conformance/key.$$
+  rm -f "$CONFORMANCE_KEY_FILE"
+  export CONFORMANCE_KEY_FILE
+  keyflags="--key-env CONFORMANCE_KEY"
+fi
 if [ "$level" = switches ]; then
   # The in-memory Cauthy's admin token, made for this run, like the password.
   CONFORMANCE_ADMIN_TOKEN=$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")
@@ -44,7 +65,7 @@ fi
 
 "$root/node_modules/.bin/tsx" "$root/conformance/target.ts" &
 target=$!
-trap 'kill $target 2>/dev/null || true' EXIT INT TERM
+trap 'kill $target 2>/dev/null || true; [ -z "$CONFORMANCE_KEY_FILE" ] || rm -f "$CONFORMANCE_KEY_FILE"' EXIT INT TERM
 
 i=0
 until curl -s -m 1 -o /dev/null "http://localhost:$port/api/auth/session"; do
@@ -56,11 +77,18 @@ until curl -s -m 1 -o /dev/null "http://localhost:$port/api/auth/session"; do
   sleep 0.2
 done
 
+if [ -n "$CONFORMANCE_KEY_FILE" ]; then
+  test -s "$CONFORMANCE_KEY_FILE" || { echo "the target wrote no key" >&2; exit 2; }
+  # Only the runner's environment carries it.
+  CONFORMANCE_KEY=$(cat "$CONFORMANCE_KEY_FILE")
+  export CONFORMANCE_KEY
+fi
+
 set +e
-# $switches is split into its flags on purpose.
+# $switches and $keyflags are split into their flags on purpose.
 # shellcheck disable=SC2086
 "$runner" --target "http://localhost:$port/api/auth" --origin "http://localhost:$port" \
-  --email member@example.com --level "$level" --table "$spec/protocol/routes.yaml" --json "$report" $switches
+  --email member@example.com --level "$level" --table "$spec/protocol/routes.yaml" --json "$report" $switches $keyflags
 code=$?
 set -e
 exit $code
