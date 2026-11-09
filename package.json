@@ -1,6 +1,6 @@
 {
   "name": "@cauthyhq/node",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Cauthy for Node.js backends: sign-in, cookie sessions, organizations and Pact contract mode, behind the auth-bff protocol.",
   "license": "Apache-2.0",
   "author": "Vennet Developers",
