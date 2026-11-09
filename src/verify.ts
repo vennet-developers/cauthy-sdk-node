@@ -12,6 +12,7 @@
 import { compactVerify, createLocalJWKSet, type CompactVerifyGetKey, type JSONWebKeySet, type JWTVerifyGetKey } from 'jose'
 import { parseStrict } from './json'
 import { CauthyConfigError } from './types'
+import { deprecated } from './deprecate'
 import { withoutTrailingSlashes } from './url'
 
 /** Who a verified access token belongs to. */
@@ -270,6 +271,12 @@ function decodeJson(segment: string): unknown {
  * them would accept a token of any other application or workspace.
  */
 export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: string | Request | Headers) => Promise<TokenIdentity> {
+  // Read from the environment, these three leave in 2.0: CAUTHY_KEY says them all.
+  const fromEnv = (['CAUTHY_ISSUER', 'CAUTHY_AUDIENCE', 'CAUTHY_TENANT_ID'] as const)
+    .filter((name, i) => [options.issuer, options.audience, options.tenantId][i] === undefined && (env(name) ?? '') !== '')
+  if (fromEnv.length > 0) {
+    deprecated('Reading CAUTHY_ISSUER, CAUTHY_AUDIENCE and CAUTHY_TENANT_ID to verify tokens', 'Set CAUTHY_KEY and use createVerifierFromEnv().')
+  }
   const issuerGiven = options.issuer ?? env('CAUTHY_ISSUER') ?? ''
   if (issuerGiven === '') throw new CauthyConfigError('issuer (CAUTHY_ISSUER) is not set')
   const issuer = issuerAddress(issuerGiven, 'issuer')

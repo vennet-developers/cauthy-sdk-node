@@ -271,6 +271,10 @@ export const KEY_REPLACES = ['CAUTHY_ISSUER', 'CAUTHY_CLIENT_ID', 'CAUTHY_CLIENT
 interface Keyed {
   key: CauthyKey
   previous?: CauthyKey
+  /** While moving off the variables: old sessions are read with it, never written. */
+  legacySecret?: string
+  /** While moving off PACT_ROOT_KEY: old sessions are read with it, and its RS256 keys stay published. */
+  legacyRoot?: string
 }
 
 function byKey(given: CauthyOptions): Keyed | undefined {
@@ -300,7 +304,15 @@ function byKey(given: CauthyOptions): Keyed | undefined {
   if (previous && (previous.issuer !== key.issuer || previous.clientId !== key.clientId)) {
     throw new CauthyKeyError('key_previous_mismatch', 'CAUTHY_KEY_PREVIOUS names another Cauthy or client than CAUTHY_KEY')
   }
-  return { key, previous }
+  // The two secrets of before, accepted beside the key only to read what they sealed.
+  const legacySecret = env('CAUTHY_SECRET') || undefined
+  const legacyRoot = env('PACT_ROOT_KEY') || undefined
+  if (legacySecret) deprecated('CAUTHY_SECRET beside CAUTHY_KEY', 'It is read only for sessions made before the move: remove it after the rotation window.')
+  if (legacyRoot) deprecated('PACT_ROOT_KEY beside CAUTHY_KEY', 'It is read only for sessions made before the move: remove it, the keys option and its table after the rotation window.')
+  if (given.keys && !(legacyRoot && given.contract)) {
+    throw new CauthyConfigError('with CAUTHY_KEY the application keeps no key store: remove keys (it is read only beside PACT_ROOT_KEY and a contract, while moving)')
+  }
+  return { key, previous, legacySecret, legacyRoot }
 }
 
 /** A request from an origin the application did not register in Cauthy (CAUTHY_KEY). */
@@ -368,9 +380,25 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   fromKey?.signer.then(s => { signingKid = s.kid }, () => undefined)
   const derived = pacted ? deriveKeys(pacted.root, pacted.previous) : undefined
   const single: Promise<KeyRing> | undefined = derived || fromKey ? undefined : keyOf(secret).then(k => [k])
-  const cookieKeys = (fromKey?.cookie ?? derived?.cookie ?? single) as Promise<KeyRing>
-  const flowKeys = (fromKey?.flow ?? derived?.flow ?? single) as Promise<KeyRing>
-  const ownKeys = derived && given.keys ? pactKeys(given.keys, derived.seal) : undefined
+  // Beside the key while moving: what CAUTHY_SECRET or PACT_ROOT_KEY sealed is
+  // still read, after the key's own entries. Writing always uses entry 0, the key's.
+  const legacyRings = keyed?.legacyRoot ? deriveKeys(keyed.legacyRoot) : undefined
+  const legacySingle = keyed?.legacySecret ? keyOf(keyed.legacySecret) : undefined
+  const withLegacy = async (own: Promise<KeyRing>, purpose: 'cookie' | 'flow'): Promise<KeyRing> => [
+    ...(await own),
+    ...(legacyRings ? [(await legacyRings[purpose])[0]] : []),
+    ...(legacySingle ? [await legacySingle] : []),
+  ]
+  const cookieKeys = (fromKey ? withLegacy(fromKey.cookie, 'cookie') : derived?.cookie ?? single) as Promise<KeyRing>
+  const flowKeys = (fromKey ? withLegacy(fromKey.flow, 'flow') : derived?.flow ?? single) as Promise<KeyRing>
+  // Applications on the variables of 1.1 are told once where to go.
+  if (!keyed && !pacted) {
+    deprecated('Configuring with CAUTHY_ISSUER, CAUTHY_CLIENT_ID, CAUTHY_CLIENT_SECRET, CAUTHY_SECRET and the other CAUTHY_* variables (or their options)',
+      'Connect the application in Cauthy\'s dashboard and use the one variable CAUTHY_KEY.')
+  }
+  // The RS256 keys of PACT_ROOT_KEY's store: by contract; on CAUTHY_KEY only while moving, published beside the key's.
+  const ownKeys = derived && given.keys ? pactKeys(given.keys, derived.seal)
+    : legacyRings && contract && given.keys ? pactKeys(given.keys, legacyRings.seal) : undefined
   const baseURL = given.baseURL ?? (keyed ? undefined : env('CAUTHY_BASE_URL'))
   if (baseURL !== undefined && baseURL !== '' && !/^https?:\/\/[^/]+\/*$/.test(baseURL)) {
     throw new CauthyConfigError('baseURL (CAUTHY_BASE_URL) must be the application\'s public origin, e.g. https://app.example.com')
@@ -2074,6 +2102,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     const s = await fromKey!.signer
     const keys: object[] = [{ ...s.publicJwk, kid: s.kid, alg: 'EdDSA', use: 'sig' }]
     if (fromKey!.previousJwk) keys.push({ ...(await fromKey!.previousJwk), alg: 'EdDSA', use: 'sig' })
+    if (ownKeys) keys.push(...(await ownKeys.published()).keys)
     return new Response(JSON.stringify({ keys }), {
       headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': `public, max-age=${JWKS_MAX_AGE_S}` },
     })
