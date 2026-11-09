@@ -1,7 +1,8 @@
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { FakeCauthy } from './testing'
 import { CauthyConfigError } from './types'
-import { CauthyTokenError, createTokenVerifier, verifyToken } from './verify'
+import { CauthyTokenError, createTokenVerifier, createVerifierFromEnv, verifyToken } from './verify'
 
 const issuer = 'https://cauthy.example.com'
 const tenantId = 'adbc2bca-245a-40e7-9cc3-d1746e06fff8'
@@ -169,5 +170,45 @@ describe('an access token', () => {
     await refused(verifyToken(await sign(person), { ...options, tenantId: '00000000-0000-4000-8000-000000000000' }))
     const { sub: _sub, ...nobody } = person
     await refused(verifyToken(await sign(nobody), options))
+  })
+})
+
+describe('a verifier from CAUTHY_KEY alone', () => {
+  const TENANT = '6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b'
+  afterEach(() => vi.unstubAllEnvs())
+
+  async function keyed() {
+    const fake = new FakeCauthy()
+    fake.tenantId = TENANT
+    vi.stubEnv('CAUTHY_KEY', await fake.issueKey())
+    const pair = await generateKeyPair('RS256')
+    const jwks = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k1', alg: 'RS256' }] })
+    const signFor = (claims: Record<string, unknown>) => new SignJWT(claims).setProtectedHeader({ alg: 'RS256', kid: 'k1' })
+      .setIssuer(fake.issuer).setAudience(fake.issuer).setIssuedAt().setExpirationTime('10m').sign(pair.privateKey as CryptoKey)
+    return { fake, jwks, signFor }
+  }
+
+  it('takes the issuer, the audience and the workspace from Cauthy\'s answer', async () => {
+    const { fake, jwks, signFor } = await keyed()
+    const verify = await createVerifierFromEnv({ fetch: fake.fetch, jwks })
+    expect(fake.calls).toContain('GET /v1/connect/self')
+    const who = await verify(await signFor({ sub: person.sub, tid: TENANT, roles: [] }))
+    expect(who).toMatchObject({ userId: person.sub, tenantId: TENANT })
+    await expect(verify(await signFor({ sub: person.sub, tid: '7b2a1d3e-4c5f-4a6b-9c8d-1e2f3a4b5c6d', roles: [] }))).rejects.toBeInstanceOf(CauthyTokenError)
+  })
+
+  it('refuses a second source beside the key', async () => {
+    const { fake } = await keyed()
+    await expect(createVerifierFromEnv({ fetch: fake.fetch, audience: 'x' })).rejects.toThrow(/audience comes from CAUTHY_KEY/)
+    vi.stubEnv('CAUTHY_AUDIENCE', 'https://id.test')
+    await expect(createVerifierFromEnv({ fetch: fake.fetch })).rejects.toThrow(/CAUTHY_AUDIENCE is also set/)
+  })
+
+  it('reads the variables of before without CAUTHY_KEY', async () => {
+    vi.stubEnv('CAUTHY_ISSUER', issuer)
+    vi.stubEnv('CAUTHY_AUDIENCE', 'cauthy-api')
+    vi.stubEnv('CAUTHY_TENANT_ID', tenantId)
+    const verify = await createVerifierFromEnv({ jwks: options.jwks })
+    expect((await verify(await sign(person))).userId).toBe(person.sub)
   })
 })

@@ -40,7 +40,7 @@ import { deadline } from './deadline'
 import { createTokenVerifier, type TokenIdentity, type VerifyTokenOptions } from './verify'
 import { deprecated } from './deprecate'
 import { checkMount as probeMount, type MountTarget } from './mount'
-import { parseKey, type CauthyKey } from './cauthykey'
+import { parseKey, refuseBesideKey, type CauthyKey } from './cauthykey'
 import { ASSERTION_TYPE, deriveFromKey, type KeyDerived } from './keyderive'
 import { createIdentity, type Identity, type IdentityCache } from './identity'
 import { CauthyKeyError } from './types'
@@ -260,13 +260,6 @@ function conditionalOf(c: any): ConditionalPermission {
   return { resource: String(c?.resource ?? ''), action: String(c?.action ?? ''), effect: c?.effect === 'deny' ? 'deny' : 'allow' }
 }
 
-/**
- * The variables CAUTHY_KEY replaces: set beside it, each is a second source
- * of the same thing, and the application refuses to start (key/cauthy-key.md §10).
- */
-export const KEY_REPLACES = ['CAUTHY_ISSUER', 'CAUTHY_CLIENT_ID', 'CAUTHY_CLIENT_SECRET', 'CAUTHY_SYSTEM', 'CAUTHY_TENANT',
-  'CAUTHY_SYSTEM_KEY', 'CAUTHY_SYSTEM_KEY_ID', 'CAUTHY_BASE_URL', 'CAUTHY_AUDIENCE', 'CAUTHY_TENANT_ID'] as const
-
 /** What an application on CAUTHY_KEY reads: the key, and the one it replaces while rotating. */
 interface Keyed {
   key: CauthyKey
@@ -280,11 +273,7 @@ interface Keyed {
 function byKey(given: CauthyOptions): Keyed | undefined {
   const text = given.key ?? env('CAUTHY_KEY')
   if (text === undefined || text === '') return undefined
-  const set = KEY_REPLACES.filter(n => (env(n) ?? '') !== '')
-  if (set.length > 0) {
-    throw new CauthyConfigError(`the application runs on CAUTHY_KEY, and ${set.join(', ')} ${set.length === 1 ? 'is' : 'are'} also set: ` +
-      `remove ${set.length === 1 ? 'it' : 'them'} from the environment. Everything comes from the key.`)
-  }
+  refuseBesideKey(typeof process !== 'undefined' ? process.env : undefined)
   for (const [name, value] of [['issuer', given.issuer], ['clientId', given.clientId], ['clientSecret', given.clientSecret],
     ['secret', given.secret], ['system', given.system], ['tenant', given.tenant], ['audience', given.audience], ['tenantId', given.tenantId],
     ['systemKey', given.systemKey], ['rootKey', given.rootKey]] as const) {

@@ -13,6 +13,11 @@ import { compactVerify, createLocalJWKSet, type CompactVerifyGetKey, type JSONWe
 import { parseStrict } from './json'
 import { CauthyConfigError } from './types'
 import { deprecated } from './deprecate'
+import { parseKey, refuseBesideKey } from './cauthykey'
+import { deriveFromKey } from './keyderive'
+import { createIdentity } from './identity'
+import { createSystem } from './system'
+import { deadline } from './deadline'
 import { withoutTrailingSlashes } from './url'
 
 /** Who a verified access token belongs to. */
@@ -398,4 +403,30 @@ export function createTokenVerifier(options: VerifyTokenOptions = {}): (from: st
  */
 export async function verifyToken(from: string | Request | Headers, options: VerifyTokenOptions = {}): Promise<TokenIdentity> {
   return createTokenVerifier(options)(from)
+}
+
+/**
+ * A verifier made from the environment. With `CAUTHY_KEY` the issuer, the
+ * audience and the workspace are Cauthy's answer to `GET /v1/connect/self`
+ * (asked with the key's assertion, once); nothing else is read, and any of
+ * `issuer`, `audience`, `tenantId` given beside it is refused. Without it,
+ * `CAUTHY_ISSUER`, `CAUTHY_AUDIENCE` and `CAUTHY_TENANT_ID`, deprecated.
+ *
+ *   const verify = await createVerifierFromEnv()
+ *   const who = await verify(request)
+ */
+export async function createVerifierFromEnv(
+  options: Omit<VerifyTokenOptions, 'issuers'> & { key?: string } = {},
+): Promise<(from: string | Request | Headers) => Promise<TokenIdentity>> {
+  const text = options.key ?? env('CAUTHY_KEY')
+  if (text === undefined || text === '') return createTokenVerifier(options)
+  refuseBesideKey(typeof process !== 'undefined' ? process.env : undefined)
+  for (const name of ['issuer', 'audience', 'tenantId'] as const) {
+    if (options[name] !== undefined) throw new CauthyConfigError(`with CAUTHY_KEY, ${name} comes from CAUTHY_KEY: do not pass it`)
+  }
+  const key = parseKey(text)
+  const system = createSystem({ issuer: key.issuer, clientId: key.clientId, signer: { clientId: key.clientId, signer: deriveFromKey(key).signer }, fetch: options.fetch })
+  const id = await createIdentity({ issuer: key.issuer, token: () => system.token(), fetch: deadline(options.fetch, KEYS_TIMEOUT_MS) }).ready()
+  const { key: _, ...rest } = options
+  return createTokenVerifier({ ...rest, issuer: id.issuer, audience: id.audience, tenantId: id.tenant.id })
 }

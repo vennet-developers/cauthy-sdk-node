@@ -1,9 +1,25 @@
 // CAUTHY_KEY (key/cauthy-key.md in cauthy-sdk-spec): parsing and composing,
 // synchronously. Derivation and signing are in keyderive.ts.
 import { sha256 } from './sha256'
-import { CauthyKeyError, type CauthyKeyReason } from './types'
+import { CauthyConfigError, CauthyKeyError, type CauthyKeyReason } from './types'
 
 export const KEY_PREFIX = 'cauthy1'
+
+/**
+ * The variables CAUTHY_KEY replaces: set beside it, each is a second source
+ * of the same thing, and the application refuses to start (key/cauthy-key.md §10).
+ */
+export const KEY_REPLACES = ['CAUTHY_ISSUER', 'CAUTHY_CLIENT_ID', 'CAUTHY_CLIENT_SECRET', 'CAUTHY_SYSTEM', 'CAUTHY_TENANT',
+  'CAUTHY_SYSTEM_KEY', 'CAUTHY_SYSTEM_KEY_ID', 'CAUTHY_BASE_URL', 'CAUTHY_AUDIENCE', 'CAUTHY_TENANT_ID'] as const
+
+/** Names the KEY_REPLACES variables set in `environment`, refusing them beside CAUTHY_KEY. */
+export function refuseBesideKey(environment: Record<string, string | undefined> | undefined): void {
+  const set = KEY_REPLACES.filter(n => (environment?.[n] ?? '') !== '')
+  if (set.length > 0) {
+    throw new CauthyConfigError(`the application runs on CAUTHY_KEY, and ${set.join(', ')} ${set.length === 1 ? 'is' : 'are'} also set: ` +
+      `remove ${set.length === 1 ? 'it' : 'them'} from the environment. Everything comes from the key.`)
+  }
+}
 const MAX_LEN = 512
 const enc = new TextEncoder()
 const dec = new TextDecoder('utf-8', { fatal: true })
