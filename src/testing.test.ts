@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { parseKey } from './cauthykey'
+import { deriveFromKey } from './keyderive'
 import { FakeCauthy, serveFakeCauthy } from './testing'
 
 const login = (fake: FakeCauthy, body: unknown, tenant = 'acme') =>
@@ -114,6 +116,103 @@ describe('the fake Cauthy, as the dashboard changes it', () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/settings/auth`, { headers: { authorization: 'Bearer admin-token', 'x-tenant-key': 'acme' } })
       expect(res.status).toBe(200)
       expect((await res.json()).data).toMatchObject({ allow_password: true })
+    } finally {
+      server.close()
+    }
+  })
+})
+
+describe('FakeCauthy and CAUTHY_KEY', () => {
+  const ASSERTION = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+  const post = (fake: FakeCauthy, path: string, form: Record<string, string>) =>
+    fake.fetch(`${fake.issuer}${path}`, { method: 'POST', body: new URLSearchParams(form) })
+
+  it('issues a key whose assertion buys a system token and an identity', async () => {
+    const fake = new FakeCauthy()
+    const key = await fake.issueKey()
+    const k = parseKey(key)
+    expect(k.issuer).toBe(fake.issuer)
+    expect(k.clientId).toBe(fake.clientId)
+    const signer = await deriveFromKey(k).signer
+    expect(fake.registeredKids()).toEqual([signer.kid])
+    const tok = await post(fake, '/v1/oauth/token', { grant_type: 'client_credentials', client_id: k.clientId,
+      client_assertion_type: ASSERTION, client_assertion: await signer.assertion(k.clientId, `${fake.issuer}/v1/oauth/token`) })
+    expect(tok.status).toBe(200)
+    const { access_token } = await tok.json()
+    const self = await fake.fetch(`${fake.issuer}/v1/connect/self`, { headers: { authorization: `Bearer ${access_token}` } })
+    expect(self.headers.get('etag')).toBeTruthy()
+    const { data } = await self.json()
+    expect(data).toMatchObject({ client_id: fake.clientId, sign_in_client_id: fake.clientId, tenant: { slug: 'acme' }, system: 'acme-crm',
+      app_urls: fake.appUrls, callback_path: '/api/auth/callback', key: { kid: signer.kid, retires_at: null }, contract: null })
+    const again = await fake.fetch(`${fake.issuer}/v1/connect/self`, { headers: { authorization: `Bearer ${access_token}`, 'if-none-match': self.headers.get('etag')! } })
+    expect(again.status).toBe(304)
+  })
+
+  it('names the address it is served at as the issuer of a key made for it', async () => {
+    const fake = new FakeCauthy()
+    const k = parseKey(await fake.issueKey('http://127.0.0.1:4000'))
+    expect(k.issuer).toBe('http://127.0.0.1:4000')
+    const signer = await deriveFromKey(k).signer
+    const form = () => ({ grant_type: 'client_credentials', client_id: k.clientId, client_assertion_type: ASSERTION })
+    const wrongAud = await post(fake, '/v1/oauth/token', { ...form(), client_assertion: await signer.assertion(k.clientId, `${fake.issuer}/v1/oauth/token`) })
+    expect(wrongAud.status).toBe(401)
+    const right = await post(fake, '/v1/oauth/token', { ...form(), client_assertion: await signer.assertion(k.clientId, 'http://127.0.0.1:4000/v1/oauth/token') })
+    expect(right.status).toBe(200)
+  })
+
+  it('refuses a revoked key, a replayed assertion and a person\'s token at /v1/connect/self', async () => {
+    const fake = new FakeCauthy()
+    const k = parseKey(await fake.issueKey())
+    const signer = await deriveFromKey(k).signer
+    const a = await signer.assertion(k.clientId, `${fake.issuer}/v1/oauth/token`)
+    const ask = (assertion: string) => post(fake, '/v1/oauth/token', { grant_type: 'client_credentials', client_id: k.clientId, client_assertion_type: ASSERTION, client_assertion: assertion })
+    expect((await ask(a)).status).toBe(200)
+    expect((await ask(a)).status).toBe(401) // replay
+    fake.revokeKey(signer.kid)
+    const res = await ask(await signer.assertion(k.clientId, `${fake.issuer}/v1/oauth/token`))
+    expect(res.status).toBe(401)
+    expect((await res.json()).error).toBe('invalid_client')
+    fake.access.set('at-person', 'u1')
+    const person = await fake.fetch(`${fake.issuer}/v1/connect/self`, { headers: { authorization: 'Bearer at-person' } })
+    expect(person.status).toBe(403)
+    expect((await person.json()).errors[0].code).toBe('not_a_system_token')
+  })
+
+  it('requires the assertion on a code exchange and a revoke for a key client, and records no secret', async () => {
+    const fake = new FakeCauthy()
+    const k = parseKey(await fake.issueKey())
+    const signer = await deriveFromKey(k).signer
+    const verifier = 'v'.repeat(48)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
+    const challenge = Buffer.from(digest).toString('base64url')
+    const authorize = () => new URL(fake.authorize(`${fake.issuer}/v1/oauth/authorize?response_type=code&client_id=${k.clientId}&redirect_uri=http://localhost:3000/api/auth/callback&state=s&code_challenge=${challenge}`)).searchParams.get('code')!
+    const exchange = { grant_type: 'authorization_code', client_id: k.clientId, redirect_uri: 'http://localhost:3000/api/auth/callback', code_verifier: verifier }
+    const bare = await post(fake, '/v1/oauth/token', { ...exchange, code: authorize(), client_secret: 'not-a-key' })
+    expect(bare.status).toBe(401)
+    expect((await bare.json()).error).toBe('invalid_client')
+    const ok = await post(fake, '/v1/oauth/token', { ...exchange, code: authorize(), client_assertion_type: ASSERTION,
+      client_assertion: await signer.assertion(k.clientId, `${fake.issuer}/v1/oauth/token`) })
+    expect(ok.status).toBe(200)
+    const { refresh_token } = await ok.json()
+    expect((await post(fake, '/v1/oauth/revoke', { client_id: k.clientId, token: refresh_token })).status).toBe(401)
+    expect((await post(fake, '/v1/oauth/revoke', { client_id: k.clientId, token: refresh_token, client_assertion_type: ASSERTION,
+      client_assertion: await signer.assertion(k.clientId, `${fake.issuer}/v1/oauth/token`) })).status).toBe(200)
+    expect(fake.oauthRequests.filter(r => r.form.client_assertion).every(r => r.form.client_secret === undefined)).toBe(true)
+  })
+
+  it('serves a key application over HTTP, as the guide test runs it', async () => {
+    const fake = new FakeCauthy()
+    const server = await serveFakeCauthy(fake, 0)
+    const { port } = server.address() as { port: number }
+    try {
+      const k = parseKey(await fake.issueKey(`http://127.0.0.1:${port}`))
+      const signer = await deriveFromKey(k).signer
+      const tok = await fetch(`${k.issuer}/v1/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'client_credentials', client_id: k.clientId, client_assertion_type: ASSERTION,
+          client_assertion: await signer.assertion(k.clientId, `${k.issuer}/v1/oauth/token`) }) })
+      expect(tok.status).toBe(200)
+      const self = await fetch(`${k.issuer}/v1/connect/self`, { headers: { authorization: `Bearer ${(await tok.json()).access_token}` } })
+      expect((await self.json()).data.issuer).toBe(k.issuer)
     } finally {
       server.close()
     }

@@ -1,8 +1,14 @@
 // A Cauthy that lives in memory, and a browser that keeps cookies: what the
 // tests sign in against. Exported as `@cauthyhq/node/testing`, for tests only:
-// it signs in anyone it was told about, and checks nothing a real Cauthy does.
+// it signs in anyone it was told about, and checks little a real Cauthy does.
+// What it does check is how a CAUTHY_KEY application proves itself: it issues
+// keys (`issueKey`), takes Ed25519 assertions on every token and revoke call of
+// a key client, and answers GET /v1/connect/self.
 
 import { createServer, type Server } from 'node:http'
+import { b64uDecode, b64uEncode, composeKey, parseKey } from './cauthykey'
+import type { Identity } from './identity'
+import { ASSERTION_TYPE, deriveFromKey } from './keyderive'
 
 /** The settings the fake's admin API changes (PUT /v1/settings/auth), as the dashboard's switches do. */
 const ADMIN_SETTINGS = ['allow_signup', 'allow_password', 'allow_magic_link', 'allow_passkeys', 'confirm_email', 'verify_grace_days'] as const
@@ -33,7 +39,21 @@ export class FakeCauthy {
   adminToken = ''
   /** The application's client, as the admin API lists it; its allow_persistent_sessions is settings.persistent_sessions. */
   clientId = 'acme-crm'
+  /** The application's registered origins, as GET /v1/connect/self answers them (app_urls). */
+  appUrls: string[] = ['http://localhost:3000']
+  /** The application's system, as GET /v1/connect/self answers it. */
+  system = 'acme-crm'
+  /** The workspace's id, as GET /v1/connect/self answers it. */
+  tenantId = 't-acme'
+  /** What GET /v1/connect/self answers as `contract`. */
+  contract: Identity['contract'] = null
+  /** Every call to the token and revoke endpoints, with its form and headers: what a test reads of how the application authenticated. */
+  oauthRequests: { path: string; form: Record<string, string>; headers: Record<string, string> }[] = []
   private n = 0
+  private keys = new Map<string, { x: string; clientId: string; issuer: string; revoked: boolean }>()
+  private jtis = new Set<string>()
+  private systemTokens = new Map<string, string>() // access token → kid
+  private keyClients = new Set<string>()
 
   constructor() {
     this.users.set('u1', { sub: 'u1', email: 'ana@acme.com', name: 'Ana', active: true, restricted: false })
@@ -46,6 +66,73 @@ export class FakeCauthy {
     const code = `code-${++this.n}`
     this.codes.set(code, { sub, challenge: q.get('code_challenge') ?? '', redirectUri: q.get('redirect_uri') ?? '' })
     return `${q.get('redirect_uri')}?code=${code}&state=${q.get('state')}`
+  }
+
+  /**
+   * Makes a CAUTHY_KEY for the application's client and registers its public
+   * half, as Cauthy's dashboard does in the browser. `issuer` is the address
+   * the application will reach this Cauthy at (the served one, over HTTP).
+   * From then on that client authenticates with assertions only.
+   */
+  async issueKey(issuer: string = this.issuer, options: { clientId?: string } = {}): Promise<string> {
+    const clientId = options.clientId ?? this.clientId
+    const key = composeKey(issuer.replace(/\/+$/, ''), clientId, b64uEncode(crypto.getRandomValues(new Uint8Array(32))))
+    const signer = await deriveFromKey(parseKey(key)).signer
+    this.keys.set(signer.kid, { x: signer.publicJwk.x, clientId, issuer: parseKey(key).issuer, revoked: false })
+    this.keyClients.add(clientId)
+    return key
+  }
+
+  /** Revokes a registered key, as the dashboard's Revoke does: refused from now on. */
+  revokeKey(kid: string): void {
+    const k = this.keys.get(kid)
+    if (k) k.revoked = true
+  }
+
+  /** The kids registered, revoked or not. */
+  registeredKids(): string[] {
+    return [...this.keys.keys()]
+  }
+
+  /** Checks an RFC 7523 assertion of a registered Ed25519 key: the kid it signed with, or null. */
+  private async assertionOf(form: URLSearchParams): Promise<string | null> {
+    if (form.get('client_assertion_type') !== ASSERTION_TYPE) return null
+    const jws = form.get('client_assertion') ?? ''
+    const [h, p, sig, extra] = jws.split('.')
+    if (!h || !p || !sig || extra !== undefined) return null
+    const dec = new TextDecoder()
+    let header: { alg?: unknown; kid?: unknown }
+    let claims: { iss?: unknown; sub?: unknown; aud?: unknown; jti?: unknown; exp?: unknown }
+    try {
+      header = JSON.parse(dec.decode(b64uDecode(h) ?? new Uint8Array()))
+      claims = JSON.parse(dec.decode(b64uDecode(p) ?? new Uint8Array()))
+    } catch {
+      return null
+    }
+    const kid = typeof header.kid === 'string' ? header.kid : ''
+    const k = this.keys.get(kid)
+    const clientId = form.get('client_id') ?? ''
+    if (header.alg !== 'EdDSA' || !k || k.revoked || k.clientId !== clientId) return null
+    if (claims.iss !== clientId || claims.sub !== clientId || claims.aud !== `${k.issuer}/v1/oauth/token`) return null
+    const now = Math.floor(Date.now() / 1000)
+    if (typeof claims.exp !== 'number' || claims.exp <= now || claims.exp - now > 330) return null
+    if (typeof claims.jti !== 'string' || claims.jti === '' || this.jtis.has(claims.jti)) return null
+    const signature = b64uDecode(sig)
+    if (!signature) return null
+    const pub = await crypto.subtle.importKey('jwk', { kty: 'OKP', crv: 'Ed25519', x: k.x }, { name: 'Ed25519' }, false, ['verify'])
+    if (!(await crypto.subtle.verify({ name: 'Ed25519' }, pub, new Uint8Array(signature), new TextEncoder().encode(`${h}.${p}`)))) return null
+    this.jtis.add(claims.jti)
+    return kid
+  }
+
+  /** What GET /v1/connect/self answers for a key. */
+  private identityOf(kid: string): Identity {
+    const k = this.keys.get(kid)!
+    return {
+      issuer: k.issuer, audience: k.issuer, tenant: { id: this.tenantId, slug: this.tenant }, system: this.system,
+      client_id: k.clientId, sign_in_client_id: k.clientId, app_urls: [...this.appUrls], callback_path: '/api/auth/callback',
+      key: { kid, retires_at: null }, contract: this.contract,
+    }
   }
 
   /** A token answer. `kind` is what a sign-in asked for (remember) when the client allows long sessions; `persistent` wins when set. */
@@ -70,7 +157,36 @@ export class FakeCauthy {
     if (admin) return admin
     if (this.ownScreens && url.pathname.startsWith('/v1/auth/')) return this.ownScreen(url, init)
 
+    const oauth = url.pathname === '/v1/oauth/token' || url.pathname === '/v1/oauth/revoke'
+    if (oauth) {
+      this.oauthRequests.push({ path: url.pathname, form: Object.fromEntries(form), headers: Object.fromEntries(new Headers(init?.headers)) })
+    }
+    // A client with a registered key proves itself with an assertion on every
+    // call of the token and revoke endpoints, as Cauthy asks of it.
+    const asserted = oauth && form.has('client_assertion') ? await this.assertionOf(form) : null
+    const keyClient = this.keyClients.has(form.get('client_id') ?? '')
+    if (oauth && (keyClient || form.has('client_assertion')) && asserted === null) {
+      return reply(401, { error: 'invalid_client', error_description: 'client authentication failed' })
+    }
+    if (url.pathname === '/v1/connect/self') {
+      const kid = this.systemTokens.get(bearer)
+      if (kid === undefined) {
+        return reply(this.access.has(bearer) ? 403 : 401, { errors: [{ code: this.access.has(bearer) ? 'not_a_system_token' : 'invalid_token', message: 'a system token is required' }] })
+      }
+      if (this.keys.get(kid)?.revoked) return reply(401, { errors: [{ code: 'invalid_token', message: 'the key was revoked' }] })
+      const body = JSON.stringify({ data: this.identityOf(kid) })
+      const etag = `"${b64uEncode(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))).slice(0, 16)}"`
+      const headers = { etag, 'cache-control': 'private, max-age=300' }
+      if (new Headers(init?.headers).get('if-none-match') === etag) return new Response(null, { status: 304, headers })
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json', ...headers } })
+    }
+
     if (url.pathname === '/v1/oauth/token') {
+      if (form.get('grant_type') === 'client_credentials' && asserted !== null) {
+        const token = `sys-${++this.n}`
+        this.systemTokens.set(token, asserted)
+        return reply(200, { access_token: token, token_type: 'Bearer', expires_in: this.expiresIn })
+      }
       if (form.get('grant_type') === 'authorization_code') {
         const c = this.codes.get(form.get('code') ?? '')
         this.codes.delete(form.get('code') ?? '')
