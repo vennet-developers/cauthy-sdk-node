@@ -167,7 +167,7 @@
     "pact"
   ],
   "dependencies": {
-    "jose": "5.10.0"
+    "jose": "6.2.15"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
