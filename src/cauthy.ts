@@ -361,6 +361,11 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // CAUTHY_KEY first: with it, nothing else names Cauthy or the client.
   const keyed = byKey(given)
   const pacted = given.contract && !keyed ? byContract(given) : undefined
+  if (given.contract) {
+    deprecated('The contract option', 'Contracts are retired: remove the option and run on CAUTHY_KEY alone (an application without one makes it on its card in ' +
+      'Cauthy\'s dashboard). The same key keeps every session: people keep signing in through the client Cauthy names for it. ' +
+      'Protect sign-in with the "Protect sign-in" switches on the application\'s card.')
+  }
   const contract = keyed && given.contract ? contractOnKey(given, keyed) : pacted?.contract
   // The client people sign in with: the contract's (public) or the key's.
   const issuer = withoutTrailingSlashes(keyed?.key.issuer ?? given.issuer ?? contract?.issuer ?? env('CAUTHY_ISSUER') ?? '')
@@ -451,6 +456,14 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     : undefined
   identity?.ready().catch(() => { /* answered per request: 503 unavailable or misconfigured */ })
   const tenantNow = () => identity?.current()?.tenant.slug ?? tenant
+  // The client people sign in with. On CAUTHY_KEY it is Cauthy's to say
+  // (sign_in_client_id): an application once connected by contract has its
+  // key on the link's service client, and its people sign in, and hold their
+  // refresh tokens, through the link's sign-in client. Otherwise the key's.
+  const signInClientNow = () => identity?.current()?.sign_in_client_id || clientId
+  // Waited for where a wrong client would cost a session (a refresh token
+  // belongs to the client it was issued to): throws while Cauthy has not answered.
+  const signInClient = async (): Promise<string> => (identity ? (await identity.ready()).sign_in_client_id || clientId : clientId)
   const systemNow = () => identity?.current()?.system ?? system
 
   // The application's public origin. Without baseURL it is the request's, with
@@ -480,9 +493,12 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   // How the application proves itself at the token and revoke endpoints: on
   // CAUTHY_KEY a fresh Ed25519 assertion per call, never a secret.
-  // With a contract people sign in through the link's public client: nothing to prove there.
+  // With a contract people sign in through the link's public client: nothing
+  // to prove there. The same on CAUTHY_KEY when Cauthy names a sign-in client
+  // other than the key's: the key proves the key's client only, and the code
+  // exchange carries the system's proof (passedOn) as by contract.
   async function clientAuth(form: URLSearchParams): Promise<URLSearchParams> {
-    if (fromKey && !contract) {
+    if (fromKey && !contract && form.get('client_id') === clientId) {
       const s = await fromKey.signer
       form.set('client_assertion_type', ASSERTION_TYPE)
       form.set('client_assertion', await s.assertion(clientId, `${issuer}/v1/oauth/token`))
@@ -498,8 +514,8 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // contract may ask for them (require_system_proof), so a copied client id
   // is no use on its own.
   async function token(form: Record<string, string>, proof: Record<string, string> = {}): Promise<{ ok: true; body: any } | { ok: false; ended: boolean; code?: string }> {
-    const body = await clientAuth(new URLSearchParams({ client_id: clientId, ...form }))
     try {
+      const body = await clientAuth(new URLSearchParams({ client_id: await signInClient(), ...form }))
       const res = await doFetch(`${issuer}/v1/oauth/token`, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', ...proof },
@@ -546,8 +562,12 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   /** Best effort: tells Cauthy a refresh token is no longer wanted. */
   async function revoke(refreshToken: string): Promise<void> {
-    const form = await clientAuth(new URLSearchParams({ client_id: clientId, token: refreshToken }))
-    await doFetch(`${issuer}/v1/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form }).catch(() => undefined)
+    try {
+      const form = await clientAuth(new URLSearchParams({ client_id: await signInClient(), token: refreshToken }))
+      await doFetch(`${issuer}/v1/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form })
+    } catch {
+      // Best effort.
+    }
   }
 
   /**
@@ -785,7 +805,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     const flow: Flow = { state: random(), verifier: random(48), returnTo: localPath(url.searchParams.get('return_to'), afterSignIn) }
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(flow.verifier))))
     const q = new URLSearchParams({
-      client_id: clientId,
+      client_id: await signInClient(),
       redirect_uri: `${originOf(request)}${basePath}/callback`,
       response_type: 'code',
       state: flow.state,
@@ -877,17 +897,12 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     const { had, value } = await read(request)
     if (value !== null) {
       // Best effort: the session is over here whether or not Cauthy heard.
-      const body = await clientAuth(new URLSearchParams({ client_id: clientId, token: value.rt }))
-      await doFetch(`${issuer}/v1/oauth/revoke`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body,
-      }).catch(() => undefined)
+      await revoke(value.rt)
       orgCache.delete(value.at)
     }
     // Then through Cauthy, which ends its own session in this browser too:
     // otherwise the next "sign in" would walk straight back in.
-    const q = new URLSearchParams({ client_id: clientId, post_logout_redirect_uri: `${originOf(request)}${afterSignOut}` })
+    const q = new URLSearchParams({ client_id: signInClientNow(), post_logout_redirect_uri: `${originOf(request)}${afterSignOut}` })
     return redirect(`${issuer}/v1/oauth/logout?${q}`, clearParts(cookieName, attrs(request, 0), had))
   }
 
@@ -1060,7 +1075,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
           ...(page ? { 'x-cauthy-link-to': `${originOf(request)}${page}` } : { 'x-cauthy-links': 'hosted' }),
           // Whose request it is: what Cauthy mails goes in this application's
           // name, under its logo.
-          ...(clientId ? { 'x-cauthy-client-id': clientId } : {}),
+          ...(signInClientNow() ? { 'x-cauthy-client-id': signInClientNow() } : {}),
           ...(await passedOn(request)),
           ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
           // The person asked to stay signed in: Cauthy keeps the session long if the client allows it.
@@ -1179,7 +1194,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     // minute: every form of every page reads it.
     if (route === '/look' && !post) {
       if (lookCache === null || lookCache.until < Date.now()) {
-        const res = await ask(request, 'GET', `/v1/auth/look/${encodeURIComponent(clientId)}`)
+        const res = await ask(request, 'GET', `/v1/auth/look/${encodeURIComponent(signInClientNow())}`)
         lookCache = { until: Date.now() + LOOK_TTL_MS, look: res.error ? {} : (res.data ?? {}) }
       }
       return json(lookCache.look)
@@ -1466,8 +1481,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     if (route === '/sign-out') {
       const { had, value } = await read(request)
       if (value !== null) {
-        const form = await clientAuth(new URLSearchParams({ client_id: clientId, token: value.rt }))
-        await doFetch(`${issuer}/v1/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form }).catch(() => undefined)
+        await revoke(value.rt)
         orgCache.delete(value.at)
       }
       const h = new Headers()
@@ -1757,7 +1771,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
           // Adding never changes the role of somebody already there: that is
           // setRole's. The member's route only adds; it is asked so anyway.
           const res = await ask(request, 'POST', base, { email: String(b.email).trim(), role, name: typeof b.name === 'string' ? b.name.trim() : '',
-            client_id: clientId, only_new: true, ...(typeof b.locale === 'string' && b.locale ? { locale: b.locale } : {}) }, pages.acceptInvite, mine.token)
+            client_id: signInClientNow(), only_new: true, ...(typeof b.locale === 'string' && b.locale ? { locale: b.locale } : {}) }, pages.acceptInvite, mine.token)
           // One code for "already a member", whichever route answered it.
           if (res.error?.code === 'already_member') res.error.code = 'member_exists'
           if (res.error) return refused(res, res.error.code === 'unknown_role' ? 'role' : 'email')
@@ -1779,7 +1793,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
           return json({ status: 'removed', userId: user }, 200, mine.headers)
         }
         if (route === '/me/organizations/members/invite') {
-          const res = await ask(request, 'POST', `${base}/${user}/invite`, { client_id: clientId, ...(typeof b.locale === 'string' && b.locale ? { locale: b.locale } : {}) }, pages.acceptInvite, mine.token)
+          const res = await ask(request, 'POST', `${base}/${user}/invite`, { client_id: signInClientNow(), ...(typeof b.locale === 'string' && b.locale ? { locale: b.locale } : {}) }, pages.acceptInvite, mine.token)
           if (res.error) return refused(res)
           return json({ status: 'sent', userId: user }, 200, mine.headers)
         }
@@ -2007,7 +2021,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     }
 
     if (route === '/account' && get) {
-      const q = new URLSearchParams({ client_id: clientId })
+      const q = new URLSearchParams({ client_id: signInClientNow() })
       const back = localPath(url.searchParams.get('return_to'), '')
       if (back !== '') q.set('return_to', `${originOf(request)}${back}`)
       const locale = url.searchParams.get('locale')

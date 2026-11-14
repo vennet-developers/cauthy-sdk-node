@@ -184,7 +184,9 @@ Everything that behaves differently from 0.42:
 
 `/sign-in/anonymous`, `/me/upgrade` and `connectSystem` are deprecated: one `DeprecationWarning` per process, removed in 2.0.
 
-## Contract mode
+## Contract mode (deprecated)
+
+Contracts are retired. Remove the `contract` option and run on `CAUTHY_KEY` alone: the same key keeps every session. Cauthy names the client people sign in with (`sign_in_client_id`), so an application connected by contract keeps signing its people in through `pact.<link>` while its key proves `pact.<link>.service`. Protect sign-in with the **Protect sign-in** switches on the application's card in Cauthy's dashboard (system proof, verified email). The option keeps working through 1.x with one `DeprecationWarning` per process; what follows describes it for applications that have not moved yet.
 
 A contract is a layer on top of an application that runs on `CAUTHY_KEY`: the environment stays that one line, and the vendored graph adds the link (system proof, drift, the link's policies). No key store and no table:
 

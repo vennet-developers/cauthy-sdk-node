@@ -115,6 +115,12 @@ export interface CauthyOptions {
    * "Connect a system by contract".
    *
    *   createCauthy({ contract: { graph, system: 'acme-crm' }, keys: postgresKeyStore(query) })
+   *
+   * @deprecated Contracts are retired. Remove the option and run on
+   * CAUTHY_KEY alone: the same key keeps every session, and people keep
+   * signing in through the link's client, which Cauthy names
+   * (`sign_in_client_id`). Protect sign-in with the switches on the
+   * application's card in Cauthy's dashboard.
    */
   contract?: import('./contract').ContractOptions
   /** Where the application keeps its own key, with a contract (@cauthyhq/node/keys). */

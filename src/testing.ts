@@ -16,7 +16,7 @@ const ADMIN_SETTINGS = ['allow_signup', 'allow_password', 'allow_magic_link', 'a
 export class FakeCauthy {
   readonly issuer = 'https://id.test'
   users = new Map<string, { sub: string; email: string; name: string; active: boolean; restricted: boolean; anonymous?: boolean; verified?: boolean }>()
-  codes = new Map<string, { sub: string; challenge: string; redirectUri: string }>()
+  codes = new Map<string, { sub: string; challenge: string; redirectUri: string; clientId?: string }>()
   refresh = new Map<string, string>() // refresh token → sub
   access = new Map<string, string>() // access token → sub
   orgs = new Map<string, Record<string, unknown>[]>() // sub → organizations
@@ -47,6 +47,13 @@ export class FakeCauthy {
   tenantId = 't-acme'
   /** What GET /v1/connect/self answers as `contract`. */
   contract: Identity['contract'] = null
+  /**
+   * The client people sign in through, by the key's client, as GET
+   * /v1/connect/self answers it (sign_in_client_id): an application once
+   * connected by contract has its key on `pact.<link>.service` and its people
+   * on `pact.<link>`. Absent: the key's own client.
+   */
+  signInClients = new Map<string, string>()
   /** Every call to the token and revoke endpoints, with its form and headers: what a test reads of how the application authenticated. */
   oauthRequests: { path: string; form: Record<string, string>; headers: Record<string, string> }[] = []
   private n = 0
@@ -54,6 +61,7 @@ export class FakeCauthy {
   private jtis = new Set<string>()
   private systemTokens = new Map<string, string>() // access token → kid
   private keyClients = new Set<string>()
+  private refreshClients = new Map<string, string>() // refresh token → the client it was issued to
 
   constructor() {
     this.users.set('u1', { sub: 'u1', email: 'ana@acme.com', name: 'Ana', active: true, restricted: false })
@@ -64,7 +72,7 @@ export class FakeCauthy {
     const q = new URL(location).searchParams
     if (q.get('response_type') !== 'code') throw new Error('Cauthy answers unsupported_response_type: response_type=code is required')
     const code = `code-${++this.n}`
-    this.codes.set(code, { sub, challenge: q.get('code_challenge') ?? '', redirectUri: q.get('redirect_uri') ?? '' })
+    this.codes.set(code, { sub, challenge: q.get('code_challenge') ?? '', redirectUri: q.get('redirect_uri') ?? '', clientId: q.get('client_id') ?? undefined })
     return `${q.get('redirect_uri')}?code=${code}&state=${q.get('state')}`
   }
 
@@ -130,17 +138,18 @@ export class FakeCauthy {
     const k = this.keys.get(kid)!
     return {
       issuer: k.issuer, audience: k.issuer, tenant: { id: this.tenantId, slug: this.tenant }, system: this.system,
-      client_id: k.clientId, sign_in_client_id: k.clientId, app_urls: [...this.appUrls], callback_path: '/api/auth/callback',
+      client_id: k.clientId, sign_in_client_id: this.signInClients.get(k.clientId) ?? k.clientId, app_urls: [...this.appUrls], callback_path: '/api/auth/callback',
       key: { kid, retires_at: null }, contract: this.contract,
     }
   }
 
   /** A token answer. `kind` is what a sign-in asked for (remember) when the client allows long sessions; `persistent` wins when set. */
-  private issue(sub: string, kind?: boolean) {
+  private issue(sub: string, kind?: boolean, clientId?: string) {
     const at = `at-${++this.n}`
     const rt = `rt-${++this.n}`
     this.access.set(at, sub)
     this.refresh.set(rt, sub)
+    if (clientId) this.refreshClients.set(rt, clientId)
     const persistent = this.persistent ?? kind
     return { access_token: at, refresh_token: rt, token_type: 'Bearer', expires_in: this.expiresIn, scope: '', ...(persistent === undefined ? {} : { persistent }) }
   }
@@ -192,14 +201,22 @@ export class FakeCauthy {
         this.codes.delete(form.get('code') ?? '')
         const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(form.get('code_verifier') ?? ''))
         const challenge = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-        if (!c || c.challenge !== challenge || c.redirectUri !== form.get('redirect_uri')) return reply(400, { error: 'invalid_grant', error_description: 'the grant is invalid, expired or already used' })
-        return reply(200, this.issue(c.sub))
+        // A code is for the client it was asked by, as Cauthy has it.
+        const wrongClient = c?.clientId !== undefined && c.clientId !== form.get('client_id')
+        if (!c || wrongClient || c.challenge !== challenge || c.redirectUri !== form.get('redirect_uri')) return reply(400, { error: 'invalid_grant', error_description: 'the grant is invalid, expired or already used' })
+        return reply(200, this.issue(c.sub, undefined, form.get('client_id') ?? undefined))
       }
       if (form.get('grant_type') === 'refresh_token') {
-        const sub = this.refresh.get(form.get('refresh_token') ?? '')
-        this.refresh.delete(form.get('refresh_token') ?? '') // used once
-        if (!sub || !this.users.get(sub)?.active) return reply(400, { error: 'invalid_grant', error_description: 'the grant is invalid, expired or already used' })
-        return reply(200, this.issue(sub))
+        const rt = form.get('refresh_token') ?? ''
+        const sub = this.refresh.get(rt)
+        // A refresh token belongs to the client it was issued to.
+        const owner = this.refreshClients.get(rt)
+        this.refresh.delete(rt) // used once
+        this.refreshClients.delete(rt)
+        if (!sub || !this.users.get(sub)?.active || (owner !== undefined && owner !== form.get('client_id'))) {
+          return reply(400, { error: 'invalid_grant', error_description: 'the grant is invalid, expired or already used' })
+        }
+        return reply(200, this.issue(sub, undefined, owner ?? form.get('client_id') ?? undefined))
       }
       return reply(400, { error: 'unsupported_grant_type', error_description: 'supported grant types: authorization_code, refresh_token' })
     }

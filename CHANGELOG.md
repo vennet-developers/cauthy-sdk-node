@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+Contracts are retired: an application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in.
+
+### Changed
+
+- **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`, read at startup and every 5 minutes). An application connected by contract has its key on the link's service client (`pact.<link>.service`) and its people, and their refresh tokens, on the link's sign-in client (`pact.<link>`): the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls now go as that client. It is a public client: the key's assertion proves the key's own client only, and the code exchange carries the system's proof (`X-Cauthy-System-Token`), exactly as contract mode sends. A renewal outside the handler waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
+- **The same key keeps every session**: a cookie sealed by 1.2.1 by contract on `CAUTHY_KEY` is read and renewed by 1.3 on the same key with the `contract` option removed. `CAUTHY_KEY_PREVIOUS` still names the key's client.
+- **`@cauthyhq/node/testing`**: `FakeCauthy.signInClients` (the key's client → the sign-in client `GET /v1/connect/self` names). The fake now binds a code to the client that asked for it and a refresh token to the client it was issued to, as Cauthy does.
+
+### Deprecated (removed in 2.0)
+
+- **The `contract` option.** It keeps working through 1.x, with one `DeprecationWarning` (`CAUTHY_DEPRECATED`) per process: remove it and keep `CAUTHY_KEY`; protect sign-in with the "Protect sign-in" switches on the application's card in Cauthy's dashboard.
+
 ## 1.2.1
 
 ### Fixed

@@ -3,7 +3,9 @@
 // @cauthyhq/node 1.1.0 on the variables (CAUTHY_SECRET). Each signs a person
 // in through FakeCauthy and keeps the cookie it sealed; 1.2 then reads it at
 // GET <basePath>/session with CAUTHY_KEY and the old secret beside it, and
-// seals it again with the key, so it outlives the old secret.
+// seals it again with the key, so it outlives the old secret. And
+// @cauthyhq/node 1.2.1 by contract on CAUTHY_KEY, whose sessions 1.3 reads and
+// renews on the same key with the contract gone.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseKey } from './cauthykey'
 import { deriveFromKey } from './keyderive'
@@ -167,6 +169,49 @@ describe('a session @cauthyhq/node 1.1.0 sealed with CAUTHY_SECRET', () => {
     const sealed = b.jar.get('cauthy_session.0')!
     expect(await unsealAny(sealed, await deriveFromKey(parseKey(process.env.CAUTHY_KEY!)).cookie)).not.toBeNull()
     expect(await unsealAny(sealed, [await keyOf(SECRET)])).toBeNull()
+  })
+})
+
+describe('a session @cauthyhq/node 1.2.1 sealed by contract on CAUTHY_KEY', () => {
+  // 1.2.1 signed people in through pact.<link> with the key on the link's
+  // service client. Contracts retired, 1.3 runs on the same key alone: Cauthy
+  // names pact.<link> as the sign-in client, and the session goes on.
+  async function oldSession(fake: FakeCauthy) {
+    vi.stubEnv('CAUTHY_KEY', await fake.issueKey(fake.issuer, { clientId: SERVICE }))
+    const old = (await import('cauthyhq-node-1.2')).createCauthy({ contract: { graph: graph(), system: 'acme-crm' }, basePath: BASE, baseURL: 'https://app.test', fetch: fake.fetch })
+    const b = await signIn(fake, old)
+    expect(fake.oauthRequests.find(r => r.form.grant_type === 'authorization_code')!.form.client_id).toBe(`pact.${LINK}`)
+    return b
+  }
+
+  it.each([['fresh', 0], ['with its access token run out', 3_600_000]])('is read by 1.3 on the same CAUTHY_KEY without the contract (%s)', async (_kind, later) => {
+    const fake = new FakeCauthy()
+    fake.signInClients.set(SERVICE, `pact.${LINK}`)
+    fake.appUrls = ['https://app.test']
+    const b = await oldSession(fake)
+    const before = b.jar.get('cauthy_session.0')
+    if (later) {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + later)
+    }
+    const { createCauthy } = await current()
+    const auth = createCauthy({ basePath: BASE, fetch: fake.fetch })
+    const { res, body } = await sessionAt(auth, b)
+    expect(body.status).toBe('authenticated')
+    expect(body.session?.user.id).toBe('u1')
+    const refresh = fake.oauthRequests.filter(r => r.form.grant_type === 'refresh_token')
+    if (later) {
+      // Renewed through the link's sign-in client, which owns the refresh token.
+      expect(refresh).toHaveLength(1)
+      expect(refresh[0].form.client_id).toBe(`pact.${LINK}`)
+      expect(refresh[0].form.client_assertion).toBeUndefined()
+      expect(await unsealAny(b.jar.get('cauthy_session.0')!, await deriveFromKey(parseKey(process.env.CAUTHY_KEY!)).cookie)).not.toBeNull()
+    } else {
+      // The same key's cookie key: nothing to seal again.
+      expect(refresh).toHaveLength(0)
+      expect(res.headers.getSetCookie()).toEqual([])
+      expect(b.jar.get('cauthy_session.0')).toBe(before)
+    }
   })
 })
 
