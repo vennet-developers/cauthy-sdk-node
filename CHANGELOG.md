@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 Contracts are retired: an application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in.
 
