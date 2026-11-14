@@ -11,7 +11,7 @@ import type { Identity } from './identity'
 import { ASSERTION_TYPE, deriveFromKey } from './keyderive'
 
 /** The settings the fake's admin API changes (PUT /v1/settings/auth), as the dashboard's switches do. */
-const ADMIN_SETTINGS = ['allow_signup', 'allow_password', 'allow_magic_link', 'allow_passkeys', 'confirm_email', 'verify_grace_days'] as const
+const ADMIN_SETTINGS = ['allow_signup', 'allow_password', 'allow_magic_link', 'allow_passkeys', 'confirm_email', 'verify_grace_days', 'persistent_sessions'] as const
 
 export class FakeCauthy {
   readonly issuer = 'https://id.test'
@@ -37,7 +37,7 @@ export class FakeCauthy {
   settings: Record<string, unknown> = { allow_password: true, allow_signup: false, allow_passkeys: false, persistent_sessions: false }
   /** The bearer the admin API takes (settings, the application's client, accounts); '' refuses every admin call. */
   adminToken = ''
-  /** The application's client, as the admin API lists it; its allow_persistent_sessions is settings.persistent_sessions. */
+  /** The application's client, as the admin API lists it. */
   clientId = 'acme-crm'
   /** The application's registered origins, as GET /v1/connect/self answers them (app_urls). */
   appUrls: string[] = ['http://localhost:3000']
@@ -141,7 +141,7 @@ export class FakeCauthy {
     }
   }
 
-  /** A token answer. `kind` is what a sign-in asked for (remember) when the client allows long sessions; `persistent` wins when set. */
+  /** A token answer. `kind` is what a sign-in asked for (remember) when the workspace allows long sessions; `persistent` wins when set. */
   private issue(sub: string, kind?: boolean, clientId?: string) {
     const at = `at-${++this.n}`
     const rt = `rt-${++this.n}`
@@ -267,7 +267,7 @@ export class FakeCauthy {
       if (!user || !user.active || password === undefined || password !== body.password) {
         return refuse(401, 'invalid_credentials', 'invalid email or password')
       }
-      // A long session only when the person asked and the client allows it.
+      // A long session only when the person asked and the workspace allows it (persistent_sessions).
       const kind = this.settings.persistent_sessions === true ? new Headers(init?.headers).get('x-cauthy-remember') === '1' : undefined
       return reply(200, { data: this.issue(user.sub, kind) })
     }
@@ -321,13 +321,16 @@ function adminAnswer(fake: FakeCauthy, url: URL, init: RequestInit | undefined):
     fake.settings = next
     return reply(200, { data: fake.settings })
   }
-  const persistent = () => fake.settings.persistent_sessions === true
-  if (route === 'GET /v1/oauth/clients') return reply(200, { data: [{ client_id: fake.clientId, allow_persistent_sessions: persistent() }], total_count: 1 })
+  if (route === 'GET /v1/oauth/clients') return reply(200, { data: [{ client_id: fake.clientId }], total_count: 1 })
   if (client) {
     if (decodeURIComponent(client[1]) !== fake.clientId) return refuse(404, 'client_not_found', 'no such client')
     const change = JSON.parse(String(init?.body ?? '{}')) as { allow_persistent_sessions?: unknown }
-    if (typeof change.allow_persistent_sessions === 'boolean') fake.settings = { ...fake.settings, persistent_sessions: change.allow_persistent_sessions }
-    return reply(200, { data: { client_id: fake.clientId, allow_persistent_sessions: persistent() } })
+    // "Keep me signed in" is the workspace's (persistent_sessions), as in Cauthy.
+    if (change.allow_persistent_sessions !== undefined && change.allow_persistent_sessions !== null) {
+      return refuse(400, 'persistent_sessions_moved',
+        "allow_persistent_sessions is no longer a client's: it is the workspace's persistent_sessions (PUT /v1/settings/auth)")
+    }
+    return reply(200, { data: { client_id: fake.clientId } })
   }
   if (route === 'GET /v1/users') {
     const q = (url.searchParams.get('q') ?? '').toLowerCase()

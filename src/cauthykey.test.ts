@@ -7,7 +7,7 @@ import { CauthyKeyError } from './types'
 const raw = readFileSync(new URL('./testdata/cauthy-key.json', import.meta.url))
 const vectors = JSON.parse(raw.toString())
 // The pinned copy of cauthy-sdk-spec's vectors/cauthy-key.json.
-const PINNED = '165199405ab31ed72390c4e8eabdc7488bb07a871683341bef25525ee0020522'
+const PINNED = '0ec278678c72765535b5f6ba45bae8707b7d3025a3f34c63f92603e213ca6ad6'
 // The test secret: the bytes 00 01 … 1f, a test value only.
 const TEST_SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8'
 

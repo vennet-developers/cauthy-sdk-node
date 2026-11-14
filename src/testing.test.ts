@@ -86,13 +86,17 @@ describe('the fake Cauthy, as the dashboard changes it', () => {
     expect((await off.json()).errors[0].code).toBe('password_disabled')
   })
 
-  it('lets the client keep long sessions, as its admin says', async () => {
+  it('keeps long sessions as the workspace\'s setting, and refuses it on a client', async () => {
     const fake = make()
     fake.passwords.set('ana@acme.com', 'right-password')
     const patch = await asAdmin(fake, '/v1/oauth/clients/acme-crm', { method: 'PATCH', body: JSON.stringify({ allow_persistent_sessions: true }) })
-    expect((await patch.json()).data.allow_persistent_sessions).toBe(true)
-    const listed = await asAdmin(fake, '/v1/oauth/clients')
-    expect((await listed.json()).data[0]).toMatchObject({ client_id: 'acme-crm', allow_persistent_sessions: true })
+    expect(patch.status).toBe(400)
+    expect((await patch.json()).errors[0].code).toBe('persistent_sessions_moved')
+    expect(fake.settings.persistent_sessions).toBe(false)
+    const put = await asAdmin(fake, '/v1/settings/auth', { method: 'PUT', body: JSON.stringify({ persistent_sessions: true }) })
+    expect((await put.json()).data.persistent_sessions).toBe(true)
+    const shown = await fake.fetch(`${fake.issuer}/v1/auth/settings`, { headers: { 'x-tenant-key': 'acme' } })
+    expect((await shown.json()).data.persistent_sessions).toBe(true)
     const login = await fake.fetch(`${fake.issuer}/v1/auth/login`, {
       method: 'POST', headers: { 'x-tenant-key': 'acme', 'x-cauthy-remember': '1' }, body: JSON.stringify({ email: 'ana@acme.com', password: 'right-password' }),
     })

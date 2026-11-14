@@ -979,7 +979,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
           ...(signInClientNow() ? { 'x-cauthy-client-id': signInClientNow() } : {}),
           ...(await passedOn(request)),
           ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
-          // The person asked to stay signed in: Cauthy keeps the session long if the client allows it.
+          // The person asked to stay signed in: Cauthy keeps the session long if the workspace allows it.
           ...(remember ? { 'x-cauthy-remember': '1' } : {}),
           // The answer to the workspace's Turnstile challenge, from the
           // person's browser: Cauthy checks it at the doors that ask for it.
@@ -1128,7 +1128,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
         ...(settings.data?.signup?.organization?.ask === true
           ? { organization: { ask: true, required: settings.data.signup.organization.required === true } }
           : {}),
-        // Whether the person may ask to stay signed in: the client's choice in Cauthy.
+        // Whether the person may ask to stay signed in: the workspace's setting in Cauthy (persistent_sessions).
         ...(typeof settings.data?.persistent_sessions === 'boolean' ? { persistentSessions: settings.data.persistent_sessions } : {}),
         // A sign-in link needs a page of the application to open.
         magicLink: settings.data?.allow_magic_link === true && pages.signIn !== undefined,

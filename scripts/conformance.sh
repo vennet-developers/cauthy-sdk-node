@@ -60,7 +60,7 @@ if [ "$level" = switches ]; then
   # The in-memory Cauthy's admin token, made for this run, like the password.
   CONFORMANCE_ADMIN_TOKEN=$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")
   export CONFORMANCE_ADMIN_TOKEN
-  switches="--cauthy http://127.0.0.1:$cauthy_port --admin-token-env CONFORMANCE_ADMIN_TOKEN --tenant acme --client-id acme-crm"
+  switches="--cauthy http://127.0.0.1:$cauthy_port --admin-token-env CONFORMANCE_ADMIN_TOKEN --tenant acme"
 fi
 
 "$root/node_modules/.bin/tsx" "$root/conformance/target.ts" &
