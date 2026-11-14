@@ -4,11 +4,10 @@ import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 // Every name cauthy-auth 0.42 exported from a server entry, @cauthyhq/node
-// exports from the same entry: moving is changing the import. Except contract
-// mode, removed in 1.3 (contracts are retired): its names, and the whole
-// /keys entry, are gone on purpose.
+// exports from the same entry: moving is changing the import. Except the
+// names in GONE, and the whole /keys entry, which 1.3 dropped on purpose.
 type Load = () => Promise<Record<string, unknown>>
-const RETIRED = new Set(['readContract', 'failClosed', 'STANDARD_VARIABLES', 'ContractOptions', 'ResolvedContract', 'PactItem', 'PactStatus',
+const GONE = new Set(['readContract', 'failClosed', 'STANDARD_VARIABLES', 'ContractOptions', 'ResolvedContract', 'PactItem', 'PactStatus',
   'CauthyPact', 'KeyStore', 'PactKeys', 'StoredKey'])
 const entries: [string, Load, Load][] = [
   ['.', () => import('cauthy-auth'), () => import('./index')],
@@ -32,7 +31,7 @@ describe('what 1.0 adds to the root', () => {
 describe('what cauthy-auth 0.42 exported', () => {
   it.each(entries)('%s is all still here', async (_entry, theirs, ours) => {
     const [a, b] = await Promise.all([theirs(), ours()])
-    expect(Object.keys(a).filter((name) => !(name in b) && !RETIRED.has(name))).toEqual([])
+    expect(Object.keys(a).filter((name) => !(name in b) && !GONE.has(name))).toEqual([])
   })
 })
 
@@ -59,6 +58,6 @@ describe('what cauthy-auth 0.42 exported as a type', () => {
     const names = typeOnly(entry)
     const ns = `Entry_${entry === 'index' ? 'root' : entry}`
     expect(names.length > 0 || entry === 'express').toBe(true)
-    expect(names.filter((name) => !RETIRED.has(name) && !new RegExp(`${ns}\\.${name}\\b`).test(listed))).toEqual([])
+    expect(names.filter((name) => !GONE.has(name) && !new RegExp(`${ns}\\.${name}\\b`).test(listed))).toEqual([])
   })
 })

@@ -147,7 +147,7 @@ describe('FakeCauthy and CAUTHY_KEY', () => {
     expect(self.headers.get('etag')).toBeTruthy()
     const { data } = await self.json()
     expect(data).toMatchObject({ client_id: fake.clientId, sign_in_client_id: fake.clientId, tenant: { slug: 'acme' }, system: 'acme-crm',
-      app_urls: fake.appUrls, callback_path: '/api/auth/callback', key: { kid: signer.kid, retires_at: null }, contract: null })
+      app_urls: fake.appUrls, callback_path: '/api/auth/callback', key: { kid: signer.kid, retires_at: null } })
     const again = await fake.fetch(`${fake.issuer}/v1/connect/self`, { headers: { authorization: `Bearer ${access_token}`, 'if-none-match': self.headers.get('etag')! } })
     expect(again.status).toBe(304)
   })

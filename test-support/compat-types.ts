@@ -4,9 +4,8 @@
 // checks this file; compat.test.ts checks that its lists are complete.
 //
 // The imports below are the type-only exports of cauthy-auth 0.42, entry by
-// entry (values are checked at runtime in compat.test.ts). Contract mode is
-// the exception: removed in 1.3, its names and the /keys entry are gone, and
-// compat.test.ts lists them in RETIRED.
+// entry (values are checked at runtime in compat.test.ts), less the names 1.3
+// dropped, which compat.test.ts lists in GONE.
 import type * as Entry_root from '../src/index'
 import type * as Entry_fastify from '../src/fastify'
 import type * as Entry_hono from '../src/hono'
@@ -135,7 +134,7 @@ import type { CssThemeOptions as OurCss, PushThemeOptions as OurPush, StackmythT
 import type { CauthyOptions as OurOptions } from '../src/types'
 import type { VerifyTokenOptions as OurVerify } from '../src/verify'
 
-// Less what contract mode took (createCauthy refuses it at startup).
+// Less the options 1.3 dropped.
 export const options = (o: Omit<TheirOptions, 'contract' | 'keys' | 'rootKey' | 'rootKeyPrevious'>): OurOptions => o
 export const system = (o: TheirSystem): OurSystem => o
 export const mcp = (o: TheirMcp): OurMcp => o

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- The startup refusal 1.3.0 gave a deploy still configured for a contract, and the `contract`, `keys`, `rootKey` and `rootKeyPrevious` option stubs: what is left of that configuration is ignored.
+- `FakeCauthy` no longer answers a `contract` field on `GET /v1/connect/self`, as Cauthy does not.
+
 ## 1.3.0
 
 Contracts are retired, and contract mode is removed (not deprecated): an application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in. Protect sign-in with the **Protect sign-in** switches on the application's card in Cauthy's dashboard.
@@ -14,21 +21,17 @@ Contracts are retired, and contract mode is removed (not deprecated): an applica
 ### Removed
 
 - **Contract mode**: the `contract` option, `auth.pact` (its JWKS route at the contract's `jwks_url` path, `keys` and `status()`), and the SDK-side `require_verified_email` check of a link (Cauthy enforces the client's switch at the token endpoint).
-- **The 1.1 way of contracts**: `PACT_ROOT_KEY`, `PACT_ROOT_KEY_PREVIOUS`, the `keys` store and the `rootKey` / `rootKeyPrevious` options, including the read-only readers of 1.2 beside `CAUTHY_KEY`. Sessions sealed with `PACT_ROOT_KEY` and not read during the 1.2 rotation window are no longer read. `CAUTHY_SECRET` beside `CAUTHY_KEY` is still read-only for the window.
+- **The 1.1 way of contracts**: the contract root keys, the `keys` store and the `rootKey` / `rootKeyPrevious` options, including the read-only readers of 1.2 beside `CAUTHY_KEY`. Sessions sealed with the contract root key and not read during the 1.2 rotation window are no longer read. `CAUTHY_SECRET` beside `CAUTHY_KEY` is still read-only for the window.
 - **Exports**: `readContract`, `failClosed`, `STANDARD_VARIABLES` and the types `ContractOptions`, `ResolvedContract`, `PactItem`, `PactStatus`, `CauthyPact`, `KeyStore`, `PactKeys`, `StoredKey`; the whole `@cauthyhq/node/keys` entry (`memoryKeyStore`, `postgresKeyStore`, `fileKeyStore`, `pactKeysTableSql`, `Query`); `Identity.contract`, `FakeCauthy.contract` and the `CauthyKeyReason` `key_contract_issuer`.
-
-### Refused at startup
-
-A `CauthyConfigError` ("contracts are retired: run on CAUTHY_KEY alone, and remove …"), on `CAUTHY_KEY` and on the variables alike, naming everything to remove: the `contract`, `keys`, `rootKey` or `rootKeyPrevious` option, or `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` set in the environment. A deploy still configured for contracts never runs half-configured.
 
 ## 1.2.1
 
 ### Fixed
 
-- **Moving to `CAUTHY_KEY`**: a session sealed with `CAUTHY_SECRET`, `PACT_ROOT_KEY` or `CAUTHY_KEY_PREVIOUS` is sealed again with the key on the first request that reads it through the handler or an adapter (`GET <basePath>/session`, `req.cauthy()`, …), not only when its access token is renewed. A session read during the window now outlives the old secret's removal.
-- `PACT_ROOT_KEY_PREVIOUS` beside `CAUTHY_KEY` and `PACT_ROOT_KEY` is read too: sessions sealed before a root rotation that was still open at the move stay readable. 1.2.0 read the current root only.
+- **Moving to `CAUTHY_KEY`**: a session sealed with `CAUTHY_SECRET`, the contract root key or `CAUTHY_KEY_PREVIOUS` is sealed again with the key on the first request that reads it through the handler or an adapter (`GET <basePath>/session`, `req.cauthy()`, …), not only when its access token is renewed. A session read during the window now outlives the old secret's removal.
+- the previous contract root key beside `CAUTHY_KEY` and the contract root key is read too: sessions sealed before a root rotation that was still open at the move stay readable. 1.2.0 read the current root only.
 - A session cookie that no configured key opens is still cleared, and is now said once per process (`console.warn`), naming the secret to keep beside `CAUTHY_KEY` for the window.
-- Covered end to end with the published packages: sessions signed in by `cauthy-auth` 0.41.0 and 0.42.0 (contract, `PACT_ROOT_KEY`, `keys`) and by `@cauthyhq/node` 1.1.0 (`CAUTHY_SECRET`), read by 1.2 at `GET /api/id/session`, fresh and renewed.
+- Covered end to end with the published packages: sessions signed in by `cauthy-auth` 0.41.0 and 0.42.0 (contract, the contract root key, `keys`) and by `@cauthyhq/node` 1.1.0 (`CAUTHY_SECRET`), read by 1.2 at `GET /api/id/session`, fresh and renewed.
 
 ## 1.2.0
 
@@ -40,7 +43,7 @@ One variable for every application: `CAUTHY_KEY`.
 - **Startup**: a damaged key throws `CauthyKeyError` at once with its reason (`key_format`, `key_version`, `key_checksum`, `key_issuer`, `key_client`, `key_secret`, `key_contract_issuer`, `key_previous_mismatch`), never the value. Cauthy unreachable: the server starts and `/api/auth/*` answers `503 unavailable` until Cauthy answers. Cauthy refusing the key: `503 misconfigured`, logged once with the `kid`. `auth.ready()` awaits the identity.
 - **The redirect URI** comes from the request's origin when it is one of the application's addresses in Cauthy, else the only one; otherwise `400 unknown_origin`.
 - **A contract on top of the key**: `createCauthy({ contract: { graph, system } })` with `CAUTHY_KEY` needs no key store and no table. The key proves the link's service client; the JWKS route publishes the key's Ed25519 public half (and the previous key's during a rotation). The key must name the graph's Cauthy.
-- **`CAUTHY_KEY_PREVIOUS`** (`keyPrevious`) for rotations: its sessions are read, never written. `CAUTHY_SECRET` and `PACT_ROOT_KEY` beside the key are read-only too while an application moves (one warning each); with `PACT_ROOT_KEY`, a contract and `keys`, the old RS256 keys stay published beside the new one.
+- **`CAUTHY_KEY_PREVIOUS`** (`keyPrevious`) for rotations: its sessions are read, never written. `CAUTHY_SECRET` and the contract root key beside the key are read-only too while an application moves (one warning each); with the contract root key, a contract and `keys`, the old RS256 keys stay published beside the new one.
 - **`createVerifierFromEnv()`**: a token verifier from `CAUTHY_KEY` alone (issuer, audience and workspace from Cauthy).
 - `verifyWebhook` takes the issuer from `CAUTHY_KEY` when it is set.
 - `parseKey`, `composeKey`, `KEY_REPLACES`, `CauthyKeyError`, and the types `CauthyKey`, `CauthyKeyReason`, `Identity`.
@@ -48,15 +51,15 @@ One variable for every application: `CAUTHY_KEY`.
 
 ### Refused beside `CAUTHY_KEY`
 
-`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, `CAUTHY_CLIENT_SECRET`, `CAUTHY_SYSTEM`, `CAUTHY_TENANT`, `CAUTHY_SYSTEM_KEY`, `CAUTHY_SYSTEM_KEY_ID`, `CAUTHY_BASE_URL`, `CAUTHY_AUDIENCE`, `CAUTHY_TENANT_ID`, and the options `issuer`, `clientId`, `clientSecret`, `secret`, `system`, `tenant`, `audience`, `tenantId`, `systemKey`, `rootKey` (and `keys`, except beside `PACT_ROOT_KEY` with a contract while moving).
+`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, `CAUTHY_CLIENT_SECRET`, `CAUTHY_SYSTEM`, `CAUTHY_TENANT`, `CAUTHY_SYSTEM_KEY`, `CAUTHY_SYSTEM_KEY_ID`, `CAUTHY_BASE_URL`, `CAUTHY_AUDIENCE`, `CAUTHY_TENANT_ID`, and the options `issuer`, `clientId`, `clientSecret`, `secret`, `system`, `tenant`, `audience`, `tenantId`, `systemKey`, `rootKey` (and `keys`, except beside the contract root key with a contract while moving).
 
 ### Deprecated (removed in 2.0)
 
-One `DeprecationWarning` (code `CAUTHY_DEPRECATED`) per process each: configuring with the `CAUTHY_*` variables or their options; `PACT_ROOT_KEY[_PREVIOUS]` and the `keys` store; a verifier reading `CAUTHY_ISSUER`, `CAUTHY_AUDIENCE` or `CAUTHY_TENANT_ID`. They keep working through 1.x.
+One `DeprecationWarning` (code `CAUTHY_DEPRECATED`) per process each: configuring with the `CAUTHY_*` variables or their options; the contract root keys and the `keys` store; a verifier reading `CAUTHY_ISSUER`, `CAUTHY_AUDIENCE` or `CAUTHY_TENANT_ID`. They keep working through 1.x.
 
 ### Unchanged
 
-Applications on the 1.1 variables or on `PACT_ROOT_KEY` work as before, apart from the warning. The MCP variables (`CAUTHY_MCP_*`) are not part of this change.
+Applications on the 1.1 variables or on the contract root key work as before, apart from the warning. The MCP variables (`CAUTHY_MCP_*`) are not part of this change.
 
 ## 1.1.0 — security release
 

@@ -109,19 +109,6 @@ export interface CauthyOptions {
    */
   timeouts?: { system?: number; request?: number }
   /**
-   * Removed in 1.3: contracts are retired. Given, `createCauthy` refuses to
-   * start (as it does with `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` set):
-   * run on CAUTHY_KEY alone, and protect sign-in with the "Protect sign-in"
-   * switches on the application's card in Cauthy's dashboard.
-   */
-  contract?: never
-  /** Removed in 1.3 with contracts: given, `createCauthy` refuses to start. */
-  keys?: never
-  /** Removed in 1.3 with contracts (it was `PACT_ROOT_KEY`): given, `createCauthy` refuses to start. */
-  rootKey?: never
-  /** Removed in 1.3 with contracts (it was `PACT_ROOT_KEY_PREVIOUS`): given, `createCauthy` refuses to start. */
-  rootKeyPrevious?: never
-  /**
    * Where `auth.webhook` remembers the deliveries it took, so one sent twice
    * is refused. Default: this process's memory. Give a shared one (a table)
    * when the application runs on several instances.

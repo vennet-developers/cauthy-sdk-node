@@ -244,22 +244,6 @@ interface Keyed {
   legacySecret?: string
 }
 
-/**
- * Contracts are retired: what only they used refuses to start, so a deploy
- * still configured for them never runs half-configured.
- */
-function refuseContracts(given: CauthyOptions): void {
-  const options = given as Record<string, unknown>
-  const set = [
-    ...['contract', 'keys', 'rootKey', 'rootKeyPrevious'].filter(name => options[name] !== undefined).map(name => `the ${name} option`),
-    ...['PACT_ROOT_KEY', 'PACT_ROOT_KEY_PREVIOUS'].filter(name => (env(name) ?? '') !== ''),
-  ]
-  if (set.length === 0) return
-  throw new CauthyConfigError(`contracts are retired: run on CAUTHY_KEY alone, and remove ${set.join(', ')}. ` +
-    'An application without a key makes it on its card in Cauthy\'s dashboard; the same key keeps its people signed in. ' +
-    'Protect sign-in with the "Protect sign-in" switches on that card. Sessions sealed with PACT_ROOT_KEY are no longer read.')
-}
-
 function byKey(given: CauthyOptions): Keyed | undefined {
   const text = given.key ?? env('CAUTHY_KEY')
   if (text === undefined || text === '') return undefined
@@ -310,7 +294,6 @@ function toldUnopened(): void {
 }
 
 export function createCauthy(given: CauthyOptions = {}): Cauthy {
-  refuseContracts(given)
   // CAUTHY_KEY first: with it, nothing else names Cauthy or the client.
   const keyed = byKey(given)
   const issuer = withoutTrailingSlashes(keyed?.key.issuer ?? given.issuer ?? env('CAUTHY_ISSUER') ?? '')
@@ -386,9 +369,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   identity?.ready().catch(() => { /* answered per request: 503 unavailable or misconfigured */ })
   const tenantNow = () => identity?.current()?.tenant.slug ?? tenant
   // The client people sign in with. On CAUTHY_KEY it is Cauthy's to say
-  // (sign_in_client_id): an application once connected by a contract has its
-  // key on the link's service client, and its people sign in, and hold their
-  // refresh tokens, through the link's sign-in client. Otherwise the key's.
+  // (sign_in_client_id): an application whose key is on a system client has
+  // its people sign in, and hold their refresh tokens, through another
+  // client. Otherwise the key's.
   const signInClientNow = () => identity?.current()?.sign_in_client_id || clientId
   // Waited for where a wrong client would cost a session (a refresh token
   // belongs to the client it was issued to): throws while Cauthy has not answered.

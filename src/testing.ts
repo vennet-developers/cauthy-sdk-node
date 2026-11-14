@@ -47,9 +47,9 @@ export class FakeCauthy {
   tenantId = 't-acme'
   /**
    * The client people sign in through, by the key's client, as GET
-   * /v1/connect/self answers it (sign_in_client_id): an application once
-   * connected by a (retired) contract has its key on `pact.<link>.service` and its people
-   * on `pact.<link>`. Absent: the key's own client.
+   * /v1/connect/self answers it (sign_in_client_id): an application can
+   * have its key on a system client (`pact.<link>.service`) and its people
+   * on another (`pact.<link>`). Absent: the key's own client.
    */
   signInClients = new Map<string, string>()
   /** Every call to the token and revoke endpoints, with its form and headers: what a test reads of how the application authenticated. */
@@ -181,8 +181,7 @@ export class FakeCauthy {
         return reply(this.access.has(bearer) ? 403 : 401, { errors: [{ code: this.access.has(bearer) ? 'not_a_system_token' : 'invalid_token', message: 'a system token is required' }] })
       }
       if (this.keys.get(kid)?.revoked) return reply(401, { errors: [{ code: 'invalid_token', message: 'the key was revoked' }] })
-      // `contract` is always null, as Cauthy answers it for SDKs before 1.3.
-      const body = JSON.stringify({ data: { ...this.identityOf(kid), contract: null } })
+      const body = JSON.stringify({ data: this.identityOf(kid) })
       const etag = `"${b64uEncode(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))).slice(0, 16)}"`
       const headers = { etag, 'cache-control': 'private, max-age=300' }
       if (new Headers(init?.headers).get('if-none-match') === etag) return new Response(null, { status: 304, headers })

@@ -162,7 +162,6 @@ const verify = createTokenVerifier({ issuer: 'https://id.example.com', audience:
 | --- | --- |
 | `cauthy-auth` | `@cauthyhq/node` |
 | `cauthy-auth/express`, `/fastify`, `/hono`, `/next`, `/mcp`, `/theme` | `@cauthyhq/node/express`, … (same names) |
-| Contract mode (`contract`, `PACT_ROOT_KEY`, `cauthy-auth/keys`) | Removed in 1.3: run on `CAUTHY_KEY` (see [Contracts are retired](#contracts-are-retired)) |
 | `cauthy-auth/react`, `/styles.css` | `@cauthyhq/react`, `@cauthyhq/react/styles.css` |
 | `cauthy-auth/client` | `@cauthyhq/js` |
 | `cauthy-auth/vue`, `/svelte` | No 1.0 wrapper yet: keep `cauthy-auth` 0.43 in the browser (security fixes until 2027-02-06) |
@@ -182,10 +181,6 @@ Everything that behaves differently from 0.42:
 10. **Error messages start with `@cauthyhq/node:`** instead of `cauthy-auth:`. Classes and codes are the same.
 
 `/sign-in/anonymous`, `/me/upgrade` and `connectSystem` are deprecated: one `DeprecationWarning` per process, removed in 2.0.
-
-## Contracts are retired
-
-Contract mode is removed in 1.3: run on `CAUTHY_KEY` alone, and protect sign-in with the **Protect sign-in** switches on the application's card in Cauthy's dashboard. The `contract`, `keys`, `rootKey` and `rootKeyPrevious` options, and `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` in the environment, refuse to start with a `CauthyConfigError` naming them.
 
 ## Options added in 1.0
 
