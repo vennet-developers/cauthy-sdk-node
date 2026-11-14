@@ -366,8 +366,8 @@ describe('organizations the application changes', () => {
   })
 })
 
-// A contract may ask that a code be exchanged only with the system's own
-// proof (require_system_proof): the exchange carries it, so a copied client
+// The application's "Protect sign-in" switch may ask that a code be exchanged
+// only with the system's own proof: the exchange carries it, so a copied client
 // id is no use on its own.
 describe('the code exchange', () => {
   function proving(system: boolean) {

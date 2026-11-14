@@ -13,12 +13,12 @@ npx publint --strict
 # attw reports as false-export-default for CommonJS consumers: kept on purpose.
 npx attw --pack . --profile node16 --ignore-rules false-export-default
 
-for entry in "" /express /fastify /hono /next /mcp /keys /theme /testing; do
+for entry in "" /express /fastify /hono /next /mcp /theme /testing; do
   node -e "require('@cauthyhq/node$entry')"
 done
 # ./next is imported as ESM only inside Next's bundler: plain Node cannot
 # resolve `next/headers` (Next has no exports map), as with 0.42.
-for entry in "" /express /fastify /hono /mcp /keys /theme /testing; do
+for entry in "" /express /fastify /hono /mcp /theme /testing; do
   node --input-type=module -e "await import('@cauthyhq/node$entry')"
 done
 

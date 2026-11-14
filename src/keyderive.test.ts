@@ -23,7 +23,6 @@ describe('deriveFromKey (vectors)', () => {
     const [a, b] = vectors.valid
     const d = deriveFromKey(parseKey(a.key), parseKey(b.key))
     expect((await d.cookie).length).toBe(1) // same secret: one entry
-    expect(d.previousJwk).toBeUndefined()
   })
   it('makes a fresh jti and a two-minute lifetime by default', async () => {
     const s = await deriveFromKey(parseKey(vectors.valid[0].key)).signer

@@ -5,7 +5,6 @@ import { FakeCauthy } from './testing'
 import { CauthyConfigError } from './types'
 
 const SECRET = 'a-secret-of-at-least-thirty-two-characters'
-const ROOT = 'a-root-key-of-thirty-two-random-bytes-0123'
 const TENANT = '8c2f1d6e-5b0a-4f7e-9a3d-2e6b1c4d7f90'
 const SUB = '92ee788d-a44d-4a80-bda9-244001e6f61c'
 let jwks: ReturnType<typeof createLocalJWKSet>
@@ -18,47 +17,18 @@ beforeAll(async () => {
     .setIssuer('https://id.test').setAudience('cauthy').setIssuedAt().setExpirationTime('10m').sign(pair.privateKey)
 })
 
-const graph = {
-  version: 1,
-  nodes: [
-    { id: 'cauthy', type: 'system', url: 'https://id.test', tenants: [{ id: TENANT, slug: 'acme', name: 'Acme' }] },
-    { id: 'acme-crm', type: 'system', url: 'https://app.test' },
-  ],
-  edges: [{
-    from: 'acme-crm', relation: 'links', to: 'cauthy', link: 'acme-crm-signs-in-with-cauthy',
-    identity: { issuer: 'cauthy', tenant: TENANT, subject: 'users' },
-    sign_in: { client_id: 'pact.acme-crm-signs-in-with-cauthy', redirect_uris: ['https://app.test/api/auth/callback'], require_system_proof: false },
-  }],
-}
-
 describe('auth.verifyToken: the issuer and the workspace are the instance\'s own', () => {
   const cauthy = new FakeCauthy()
   const env = (over: Record<string, unknown> = {}) =>
     createCauthy({ issuer: cauthy.issuer, clientId: 'acme-crm', secret: SECRET, tenant: 'acme', fetch: cauthy.fetch, ...over })
 
-  it('by contract, takes the workspace id from the link and the audience from the options', async () => {
-    const auth = createCauthy({ contract: { graph, system: 'acme-crm' }, rootKey: ROOT, audience: 'cauthy', fetch: cauthy.fetch })
-    const who = await auth.verifyToken(await sign(), { jwks })
-    expect(who).toMatchObject({ userId: SUB, tenantId: TENANT })
-    await expect(auth.verifyToken(await sign({ tid: '11111111-2222-4333-8444-555555555555' }), { jwks })).rejects.toMatchObject({ reason: 'wrong_tenant' })
-  })
-
-  it('by contract, refuses a person\'s token issued through another client than the link\'s (R15)', async () => {
-    const auth = createCauthy({ contract: { graph, system: 'acme-crm' }, rootKey: ROOT, audience: 'cauthy', fetch: cauthy.fetch })
-    await expect(auth.verifyToken(await sign({ azp: 'acme-admin' }), { jwks })).rejects.toMatchObject({ reason: 'wrong_client' })
-    expect((await auth.verifyToken(await sign({ azp: 'pact.acme-crm-signs-in-with-cauthy' }), { jwks })).authorizedParty).toBe('pact.acme-crm-signs-in-with-cauthy')
-    expect((await auth.verifyToken(await sign(), { jwks })).userId).toBe(SUB)
-    // The link owns the client: a call cannot name another.
-    expect(() => auth.tokenVerifier({ jwks, clientId: 'acme-admin' })).toThrow(CauthyConfigError)
-  })
-
-  it('without a contract, checks no client unless one is named', async () => {
+  it('checks no client unless one is named', async () => {
     const auth = env({ tenantId: TENANT, audience: 'cauthy' })
     expect((await auth.verifyToken(await sign({ azp: 'acme-admin' }), { jwks })).authorizedParty).toBe('acme-admin')
     await expect(auth.verifyToken(await sign({ azp: 'acme-admin' }), { jwks, clientId: 'acme-crm' })).rejects.toMatchObject({ reason: 'wrong_client' })
   })
 
-  it('without a contract, takes the workspace id and the audience from the options', async () => {
+  it('takes the workspace id and the audience from the options', async () => {
     const auth = env({ tenantId: TENANT, audience: 'cauthy' })
     expect((await auth.verifyToken(await sign(), { jwks })).userId).toBe(SUB)
   })
@@ -84,7 +54,7 @@ describe('auth.verifyToken: the issuer and the workspace are the instance\'s own
   })
 
   it('builds a verifier once, with a per-call override', async () => {
-    const verify = createCauthy({ contract: { graph, system: 'acme-crm' }, rootKey: ROOT, audience: 'cauthy', fetch: cauthy.fetch }).tokenVerifier({ jwks, allowAnonymous: true })
+    const verify = env({ tenantId: TENANT, audience: 'cauthy' }).tokenVerifier({ jwks, allowAnonymous: true })
     expect((await verify(await sign({ anon: true }))).anonymous).toBe(true)
   })
 })

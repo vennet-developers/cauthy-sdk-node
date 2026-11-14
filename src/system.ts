@@ -56,16 +56,9 @@ export interface SystemOptions {
    */
   acceptInviteUrl?: string
   /**
-   * The application's own keys, kept in its database (contract mode): it
-   * signs with the newest and publishes them. Takes the place of `key`.
-   */
-  keys?: import('./keys').PactKeys
-  /** The client the keys prove: the system's own, beside the sign-in client. */
-  keysClientId?: string
-  /**
    * CAUTHY_KEY's Ed25519 key (key/cauthy-key.md §6) and the client it proves:
-   * every token is asked with an EdDSA assertion. Takes the place of `key`,
-   * `keys` and the secret.
+   * every token is asked with an EdDSA assertion. Takes the place of `key`
+   * and the secret.
    */
   signer?: { clientId: string; signer: Promise<Signer> }
   /** The system `check` asks about when it is known only later (CAUTHY_KEY: from Cauthy's answer). */
@@ -246,10 +239,6 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
     if (given.signer) return
     if (!/^https?:\/\//.test(issuer)) throw new CauthyConfigError('issuer (CAUTHY_ISSUER) must be Cauthy\'s address')
     if (clientId === '') throw new CauthyConfigError('clientId (CAUTHY_CLIENT_ID) is required')
-    if (given.keys) {
-      if (!given.keysClientId) throw new CauthyConfigError('the contract gives the system no identity of its own: its link needs a service block')
-      return
-    }
     if (key ? key.keyId === '' : clientSecret === '') {
       throw new CauthyConfigError(key ? 'the key needs its id (CAUTHY_SYSTEM_KEY_ID)'
         : 'to act on its own the application needs its secret (CAUTHY_CLIENT_SECRET) or a key (CAUTHY_SYSTEM_KEY)')
@@ -275,14 +264,14 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
 
   async function ask(): Promise<string> {
     configured()
-    const self = given.signer ? given.signer.clientId : given.keys ? (given.keysClientId as string) : key?.clientId || clientId
+    const self = given.signer ? given.signer.clientId : key?.clientId || clientId
     const form = new URLSearchParams({ grant_type: 'client_credentials', client_id: self })
     if (given.signer) {
       const s = await given.signer.signer
       form.set('client_assertion_type', ASSERTION_TYPE)
       form.set('client_assertion', await s.assertion(self, tokenEndpoint))
-    } else if (given.keys || key) {
-      const signer = given.keys ? await given.keys.current() : { kid: (key as SystemKey).keyId, privateKey: await signingKey() }
+    } else if (key) {
+      const signer = { kid: key.keyId, privateKey: await signingKey() }
       const assertion = await new SignJWT({})
         .setProtectedHeader({ alg: 'RS256', kid: signer.kid })
         .setIssuer(self).setSubject(self).setAudience(tokenEndpoint)
@@ -393,7 +382,6 @@ export function createSystem(given: SystemOptions = {}): CauthySystem {
       return checkResultOf(await data('POST', `/v1/systems/${id(system)}/check`, { organization_id: q.organizationId, user_id: q.userId, ...checkWire(q) }))
     },
     async publicJwks() {
-      if (given.keys) return given.keys.published()
       if (!key) return { keys: [] }
       const { kty, n, e } = asJwk(key) ?? (await exportJWK(await signingKey()))
       return { keys: [{ kty, n, e, kid: key.keyId, alg: 'RS256', use: 'sig' }] }

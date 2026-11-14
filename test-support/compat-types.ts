@@ -4,13 +4,14 @@
 // checks this file; compat.test.ts checks that its lists are complete.
 //
 // The imports below are the type-only exports of cauthy-auth 0.42, entry by
-// entry (values are checked at runtime in compat.test.ts).
+// entry (values are checked at runtime in compat.test.ts). Contract mode is
+// the exception: removed in 1.3, its names and the /keys entry are gone, and
+// compat.test.ts lists them in RETIRED.
 import type * as Entry_root from '../src/index'
 import type * as Entry_fastify from '../src/fastify'
 import type * as Entry_hono from '../src/hono'
 import type * as Entry_next from '../src/next'
 import type * as Entry_mcp from '../src/mcp'
-import type * as Entry_keys from '../src/keystores'
 import type * as Entry_theme from '../src/theme'
 
 /** Type-only exports of cauthy-auth 0.42. */
@@ -21,7 +22,6 @@ export type Types_root = [
   Entry_root.Cauthy,
   Entry_root.CauthyEvent,
   Entry_root.CauthyOptions,
-  Entry_root.CauthyPact,
   Entry_root.CauthySystem,
   Entry_root.CauthyTheme,
   Entry_root.CheckOf<any>,
@@ -31,18 +31,13 @@ export type Types_root = [
   Entry_root.ConditionalPermission,
   Entry_root.ConnectOptions,
   Entry_root.Connected,
-  Entry_root.ContractOptions,
   Entry_root.FieldProblem,
   Entry_root.ImportedTheme,
   Entry_root.JsonValue,
-  Entry_root.KeyStore,
   Entry_root.NewMember,
   Entry_root.Organization,
   Entry_root.OrganizationMember,
   Entry_root.OrganizationRef,
-  Entry_root.PactItem,
-  Entry_root.PactKeys,
-  Entry_root.PactStatus,
   Entry_root.PasswordClass,
   Entry_root.PasswordLocale,
   Entry_root.PasswordPolicy,
@@ -58,7 +53,6 @@ export type Types_root = [
   Entry_root.PushThemeOptions,
   Entry_root.ReplayStore,
   Entry_root.Resolved,
-  Entry_root.ResolvedContract,
   Entry_root.RoleOf<any>,
   Entry_root.Session,
   Entry_root.SessionOrganization,
@@ -66,7 +60,6 @@ export type Types_root = [
   Entry_root.SessionUser,
   Entry_root.StackmythThemeOptions,
   Entry_root.StackmythTokens,
-  Entry_root.StoredKey,
   Entry_root.SystemKey,
   Entry_root.SystemOptions,
   Entry_root.SystemPolicy,
@@ -102,14 +95,6 @@ export type Types_mcp = [
   Entry_mcp.McpAuthOptions,
 ]
 
-/** Type-only exports of cauthy-auth/keys 0.42. */
-export type Types_keys = [
-  Entry_keys.KeyStore,
-  Entry_keys.PactKeys,
-  Entry_keys.Query,
-  Entry_keys.StoredKey,
-]
-
 /** Type-only exports of cauthy-auth/theme 0.42. */
 export type Types_theme = [
   Entry_theme.CauthyTheme,
@@ -129,7 +114,6 @@ import type {
   CauthyFastifyOptions as TheirFastify,
 } from 'cauthy-auth/fastify'
 import type {
-  ContractOptions as TheirContract,
   CauthyOptions as TheirOptions,
   ConnectOptions as TheirConnect,
   SystemOptions as TheirSystem,
@@ -145,19 +129,18 @@ import type {
 import type { CauthyFastifyOptions as OurFastify } from '../src/fastify'
 import type { ConnectOptions as OurConnect } from '../src/connect'
 import type { PushPolicyOptions as OurPushPolicy } from '../src/permissions'
-import type { ContractOptions as OurContract } from '../src/contract'
 import type { McpAuthOptions as OurMcp } from '../src/mcp'
 import type { SystemOptions as OurSystem } from '../src/system'
 import type { CssThemeOptions as OurCss, PushThemeOptions as OurPush, StackmythThemeOptions as OurStackmyth } from '../src/theme'
 import type { CauthyOptions as OurOptions } from '../src/types'
 import type { VerifyTokenOptions as OurVerify } from '../src/verify'
 
-export const options = (o: TheirOptions): OurOptions => o
+// Less what contract mode took (createCauthy refuses it at startup).
+export const options = (o: Omit<TheirOptions, 'contract' | 'keys' | 'rootKey' | 'rootKeyPrevious'>): OurOptions => o
 export const system = (o: TheirSystem): OurSystem => o
-export const contract = (o: TheirContract): OurContract => o
 export const mcp = (o: TheirMcp): OurMcp => o
 // `auth` is left out: a 0.42 Cauthy is never mixed with our plugin (both come
-// from the same import), and our ResolvedContract has two fields 0.42's lacks.
+// from the same import), and ours no longer has `pact`.
 export const fastify = (o: Omit<TheirFastify, 'auth'>): Omit<OurFastify, 'auth'> => o
 export const verify = (o: TheirVerify): OurVerify => o
 export const connect = (o: TheirConnect): OurConnect => o

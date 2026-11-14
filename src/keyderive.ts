@@ -1,11 +1,9 @@
 // Everything a CAUTHY_KEY stands for (key/cauthy-key.md §4–§6): the cookie
-// and flow rings (rootkey.ts's derivation, with the secret segment as the
-// root) and the Ed25519 key the application proves itself with.
+// and flow rings and the Ed25519 key the application proves itself with.
 //
 // The assertion is written by hand, member by member, as §6 fixes it: the
 // vectors pin it byte for byte. WebCrypto signs; nothing here needs node:crypto.
 import { b64uEncode, type CauthyKey } from './cauthykey'
-import { deriveKeys, type KeyRing } from './rootkey'
 
 const enc = new TextEncoder()
 const PKCS8_ED25519 = Uint8Array.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20])
@@ -13,6 +11,19 @@ const PKCS8_ED25519 = Uint8Array.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05,
 export const ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
 
 export type PublicJwk = { kty: 'OKP'; crv: 'Ed25519'; x: string }
+
+/** The keys of one purpose: the first writes, every one is tried to read. */
+export type KeyRing = Uint8Array[]
+
+// One HKDF key per job, from the key's secret segment. The labels are frozen
+// (§4): every session sealed since 1.2 is opened with them.
+async function ringKey(secret: string, purpose: 'cookie' | 'flow'): Promise<Uint8Array> {
+  const ikm = await crypto.subtle.importKey('raw', enc.encode(secret), 'HKDF', false, ['deriveBits'])
+  return new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: enc.encode(`pact/${purpose}/v1`) }, ikm, 256))
+}
+
+const ringOf = (secrets: string[], purpose: 'cookie' | 'flow'): Promise<KeyRing> => Promise.all(secrets.map(s => ringKey(s, purpose)))
 
 export interface Signer {
   kid: string
@@ -25,8 +36,6 @@ export interface KeyDerived {
   cookie: Promise<KeyRing>
   flow: Promise<KeyRing>
   signer: Promise<Signer>
-  /** The previous key's public JWK, published during a rotation (contract). */
-  previousJwk?: Promise<PublicJwk & { kid: string }>
 }
 
 async function seedOf(secret: string): Promise<Uint8Array> {
@@ -66,14 +75,13 @@ async function signerOf(secret: string): Promise<Signer> {
   }
 }
 
-/** The rings and the signer of a key, and of the one it replaces during a rotation. */
+/** The rings of a key (and of the one it replaces during a rotation, read only) and its signer. */
 export function deriveFromKey(key: CauthyKey, previous?: CauthyKey): KeyDerived {
   const other = previous && previous.secret !== key.secret ? previous : undefined
-  const rings = deriveKeys(key.secret, other?.secret)
+  const secrets = other ? [key.secret, other.secret] : [key.secret]
   return {
-    cookie: rings.cookie,
-    flow: rings.flow,
+    cookie: ringOf(secrets, 'cookie'),
+    flow: ringOf(secrets, 'flow'),
     signer: signerOf(key.secret),
-    ...(other ? { previousJwk: signerOf(other.secret).then(s => ({ ...s.publicJwk, kid: s.kid })) } : {}),
   }
 }

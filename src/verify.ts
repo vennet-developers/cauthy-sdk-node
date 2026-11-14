@@ -109,8 +109,8 @@ export interface VerifyTokenOptions {
   /**
    * The client this backend signs people in through. When set, a person's
    * token issued through another client (an `azp` naming another) is refused
-   * with `wrong_client` (rule R15); a token with no `azp` passes. In contract
-   * mode it is the link's sign-in client. Default: none, and `azp` is not checked.
+   * with `wrong_client` (rule R15); a token with no `azp` passes. Default:
+   * none, and `azp` is not checked.
    */
   clientId?: string
 }

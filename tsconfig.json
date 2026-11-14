@@ -12,7 +12,6 @@
     "types": ["node"],
     "paths": {
       "@cauthyhq/node": ["./src/index.ts"],
-      "@cauthyhq/node/keys": ["./src/keystores.ts"],
       "@cauthyhq/node/express": ["./src/express.ts"],
       "@cauthyhq/node/fastify": ["./src/fastify.ts"],
       "@cauthyhq/node/hono": ["./src/hono.ts"],

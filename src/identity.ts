@@ -16,7 +16,6 @@ export interface Identity {
   app_urls: string[]
   callback_path: string
   key: { kid: string; retires_at: string | null } | null
-  contract: { link: string; system_proof?: 'off' | 'auto' | 'required'; require_verified_email?: boolean; in_step?: boolean; checked_at?: string } | null
 }
 
 export interface IdentityOptions {

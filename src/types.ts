@@ -6,7 +6,7 @@ export interface CauthyOptions {
    * `CAUTHY_KEY`. With it nothing else is read: the workspace, the system and
    * the application's addresses come from Cauthy (`GET /v1/connect/self`),
    * and passing `issuer`, `clientId`, `clientSecret`, `secret`, `system`,
-   * `tenant`, `audience`, `tenantId`, `systemKey` or `rootKey` is refused.
+   * `tenant`, `audience`, `tenantId` or `systemKey` is refused.
    */
   key?: string
   /** The key being replaced, during a rotation: read, never written with. Default: `CAUTHY_KEY_PREVIOUS`. */
@@ -52,8 +52,8 @@ export interface CauthyOptions {
    */
   audience?: string
   /**
-   * The workspace's id (a lowercase UUID) for `auth.verifyToken`. By contract
-   * it comes from the link's `tenant_id`; otherwise: this, or `CAUTHY_TENANT_ID`.
+   * The workspace's id (a lowercase UUID) for `auth.verifyToken`. On
+   * CAUTHY_KEY it is Cauthy's answer; otherwise: this, or `CAUTHY_TENANT_ID`.
    */
   tenantId?: string
   /**
@@ -109,29 +109,18 @@ export interface CauthyOptions {
    */
   timeouts?: { system?: number; request?: number }
   /**
-   * Run by contract: the issuer, the workspace, the clients and where the
-   * application's keys are published all come from its link in the network's
-   * context graph, and none of the CAUTHY_* variables may be set. See
-   * "Connect a system by contract".
-   *
-   *   createCauthy({ contract: { graph, system: 'acme-crm' }, keys: postgresKeyStore(query) })
-   *
-   * @deprecated Contracts are retired. Remove the option and run on
-   * CAUTHY_KEY alone: the same key keeps every session, and people keep
-   * signing in through the link's client, which Cauthy names
-   * (`sign_in_client_id`). Protect sign-in with the switches on the
-   * application's card in Cauthy's dashboard.
+   * Removed in 1.3: contracts are retired. Given, `createCauthy` refuses to
+   * start (as it does with `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` set):
+   * run on CAUTHY_KEY alone, and protect sign-in with the "Protect sign-in"
+   * switches on the application's card in Cauthy's dashboard.
    */
-  contract?: import('./contract').ContractOptions
-  /** Where the application keeps its own key, with a contract (@cauthyhq/node/keys). */
-  keys?: import('./keys').KeyStore
-  /**
-   * The one secret of a contracted application: every key it needs is
-   * derived from it. 32 random bytes or more. Default: `PACT_ROOT_KEY`.
-   */
-  rootKey?: string
-  /** The root key before the current one, while rotating it. Default: `PACT_ROOT_KEY_PREVIOUS`. */
-  rootKeyPrevious?: string
+  contract?: never
+  /** Removed in 1.3 with contracts: given, `createCauthy` refuses to start. */
+  keys?: never
+  /** Removed in 1.3 with contracts (it was `PACT_ROOT_KEY`): given, `createCauthy` refuses to start. */
+  rootKey?: never
+  /** Removed in 1.3 with contracts (it was `PACT_ROOT_KEY_PREVIOUS`): given, `createCauthy` refuses to start. */
+  rootKeyPrevious?: never
   /**
    * Where `auth.webhook` remembers the deliveries it took, so one sent twice
    * is refused. Default: this process's memory. Give a shared one (a table)
@@ -274,7 +263,7 @@ export class CauthyConfigError extends Error {
 
 /** Why a CAUTHY_KEY was refused (key/cauthy-key.md §3, §8, §9). */
 export type CauthyKeyReason = 'key_format' | 'key_version' | 'key_checksum' | 'key_issuer' | 'key_client' | 'key_secret'
-  | 'key_contract_issuer' | 'key_previous_mismatch'
+  | 'key_previous_mismatch'
 
 /** A refused CAUTHY_KEY. The message names the reason, never the key. */
 export class CauthyKeyError extends CauthyConfigError {

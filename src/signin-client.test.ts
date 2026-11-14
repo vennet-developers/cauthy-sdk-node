@@ -3,10 +3,11 @@
 // connected by contract has its key on `pact.<link>.service` and its people,
 // and their refresh tokens, on `pact.<link>`. The key proves the key's client
 // only; the sign-in client is public, and the code exchange carries the
-// system's proof, as contract mode always sent.
+// system's proof.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCauthy } from './cauthy'
 import { Browser, FakeCauthy } from './testing'
+import { CauthyConfigError } from './types'
 
 const LINK = 'acme-crm-signs-in-with-cauthy'
 const SERVICE = `pact.${LINK}.service`
@@ -118,32 +119,56 @@ describe('a key whose client is the one people sign in with', () => {
   })
 })
 
-describe('the contract option', () => {
-  it('still works, and says once that contracts are retired', async () => {
-    vi.resetModules()
-    const warn = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined)
-    const { createCauthy: fresh } = await import('./cauthy')
+// Contracts are retired, and contract mode is removed in 1.3: what only it
+// used refuses to start, so a deploy still configured for it never runs.
+describe('contracts are retired', () => {
+  const SECRET = 'a-cauthy-secret-of-thirty-two-characters-or-more'
+  const ROOT = 'a-root-key-of-thirty-two-random-bytes-0123'
+  const retired: [string, Record<string, unknown>][] = [
+    ['the contract option', { contract: { graph: {}, system: 'acme-crm' } }],
+    ['the keys option', { keys: {} }],
+    ['the rootKey option', { rootKey: ROOT }],
+    ['the rootKeyPrevious option', { rootKeyPrevious: ROOT }],
+  ]
+
+  it.each(retired)('%s refuses to start, on CAUTHY_KEY and on the variables', async (name, given) => {
     const fake = new FakeCauthy()
-    vi.stubEnv('CAUTHY_KEY', await fake.issueKey(fake.issuer, { clientId: SERVICE }))
-    const graph = {
-      version: 1,
-      nodes: [
-        { id: 'cauthy', type: 'system', url: fake.issuer, tenants: [{ id: '6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b', slug: 'acme' }] },
-        { id: 'acme-crm', type: 'system', url: 'https://app.test', jwks_url: 'https://app.test/.well-known/pact-jwks.json' },
-      ],
-      edges: [{
-        from: 'acme-crm', relation: 'links', to: 'cauthy', link: LINK,
-        identity: { issuer: 'cauthy', tenant: '6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b', subject: 'b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e' },
-        sign_in: { client_id: SIGN_IN, redirect_uris: ['https://app.test/api/auth/callback'] },
-        service: { client_id: SERVICE, system: 'acme-crm', jwks_url: 'https://app.test/.well-known/pact-jwks.json', import: false },
-      }],
-    }
-    const a = fresh({ contract: { graph, system: 'acme-crm' }, fetch: fake.fetch })
-    fresh({ contract: { graph, system: 'acme-crm' }, fetch: fake.fetch })
-    const said = warn.mock.calls.filter(c => String(c[0]).includes('The contract option is deprecated'))
-    expect(said).toHaveLength(1)
-    expect(String(said[0][0])).toMatch(/Contracts are retired.*CAUTHY_KEY.*same key keeps every session/)
-    const start = await a.handler(new Browser().request(a.urls.signIn()))
-    expect(new URL(start.headers.get('location')!).searchParams.get('client_id')).toBe(SIGN_IN)
+    vi.stubEnv('CAUTHY_KEY', await fake.issueKey())
+    const refusal = () => createCauthy({ ...given, fetch: fake.fetch } as never)
+    expect(refusal).toThrow(CauthyConfigError)
+    expect(refusal).toThrow(new RegExp(`contracts are retired: run on CAUTHY_KEY alone, and remove ${name}\\.`))
+    vi.unstubAllEnvs()
+    expect(() => createCauthy({ ...given, issuer: fake.issuer, clientId: fake.clientId, secret: SECRET, fetch: fake.fetch } as never))
+      .toThrow(/contracts are retired/)
   })
+
+  it.each(['PACT_ROOT_KEY', 'PACT_ROOT_KEY_PREVIOUS'])('%s in the environment refuses to start, beside CAUTHY_KEY too', async (name) => {
+    const fake = new FakeCauthy()
+    vi.stubEnv(name, ROOT)
+    expect(() => createCauthy({ issuer: fake.issuer, clientId: fake.clientId, secret: SECRET, fetch: fake.fetch }))
+      .toThrow(new RegExp(`contracts are retired: run on CAUTHY_KEY alone, and remove ${name}\\..*Protect sign-in`))
+    vi.stubEnv('CAUTHY_KEY', await fake.issueKey())
+    expect(() => createCauthy({ fetch: fake.fetch })).toThrow(/contracts are retired/)
+    // Set but empty is not set.
+    vi.stubEnv(name, '')
+    expect(() => createCauthy({ fetch: fake.fetch })).not.toThrow()
+  })
+
+  it('names everything to remove at once', () => {
+    vi.stubEnv('PACT_ROOT_KEY', ROOT)
+    expect(() => createCauthy({ contract: {}, keys: {} } as never))
+      .toThrow('remove the contract option, the keys option, PACT_ROOT_KEY.')
+  })
+
+  it('is gone from the exports', async () => {
+    const root = await import('./index')
+    for (const name of ['readContract', 'failClosed', 'STANDARD_VARIABLES']) expect(root).not.toHaveProperty(name)
+    expect(await auth().then(a => 'pact' in a)).toBe(false)
+  })
+
+  async function auth() {
+    const fake = new FakeCauthy()
+    vi.stubEnv('CAUTHY_KEY', await fake.issueKey())
+    return createCauthy({ fetch: fake.fetch })
+  }
 })

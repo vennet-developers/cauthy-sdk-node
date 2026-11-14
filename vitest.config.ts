@@ -9,7 +9,6 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@cauthyhq\/node$/, replacement: `${src}/index.ts` },
-      { find: /^@cauthyhq\/node\/keys$/, replacement: `${src}/keystores.ts` },
       { find: /^@cauthyhq\/node\/(express|fastify|hono|next|mcp|theme)$/, replacement: `${src}/$1.ts` },
     ],
   },

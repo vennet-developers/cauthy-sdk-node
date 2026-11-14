@@ -13,9 +13,6 @@
 
 import { clearParts, readCookies, readParts, writeCookie, writeParts, type CookieAttributes } from './cookies'
 import { keyOf, seal, unsealAny, unsealIndexed } from './seal'
-import { failClosed, readContract, type PactStatus, type ResolvedContract } from './contract'
-import { JWKS_MAX_AGE_S, pactKeys, type PactKeys } from './keys'
-import { deriveKeys, type KeyRing } from './rootkey'
 import { checkResultOf, checkWire, organizationIdOf } from './permissions'
 import { CauthyApiError, createSystem, type CauthySystem } from './system'
 import { checkCode, checkEmail, checkName, checkNewPassword, checkPassword, firstProblem, passwordPolicyOf, type FieldProblem, type PasswordPolicy, checkOrganization, checkOrganizationName } from './validate'
@@ -41,7 +38,7 @@ import { createTokenVerifier, type TokenIdentity, type VerifyTokenOptions } from
 import { deprecated } from './deprecate'
 import { checkMount as probeMount, type MountTarget } from './mount'
 import { parseKey, refuseBesideKey, type CauthyKey } from './cauthykey'
-import { ASSERTION_TYPE, deriveFromKey, type KeyDerived } from './keyderive'
+import { ASSERTION_TYPE, deriveFromKey, type KeyDerived, type KeyRing } from './keyderive'
 import { createIdentity, type Identity, type IdentityCache } from './identity'
 import { CauthyKeyError } from './types'
 
@@ -165,10 +162,9 @@ export interface Cauthy {
   /**
    * Verifies a Cauthy access token (or a request's `Authorization: Bearer`) for
    * an API of this application: `verifyToken` with this instance's issuer, its
-   * workspace (by contract, the link's `tenant_id`; otherwise `tenantId` or
-   * `CAUTHY_TENANT_ID`) and its audience (`audience` or `CAUTHY_AUDIENCE`).
-   * By contract it also refuses a person's token issued through another
-   * client than the link's (`wrong_client`).
+   * workspace (on CAUTHY_KEY, Cauthy's answer; otherwise `tenantId` or
+   * `CAUTHY_TENANT_ID`) and its audience (on CAUTHY_KEY, Cauthy's answer;
+   * otherwise `audience` or `CAUTHY_AUDIENCE`).
    */
   verifyToken(from: string | Request | Headers, options?: Partial<VerifyTokenOptions>): Promise<TokenIdentity>
   /** The same, built once: throws `CauthyConfigError` now if the audience or the workspace is missing. */
@@ -179,31 +175,11 @@ export interface Cauthy {
    * `systemKey`.
    */
   system: CauthySystem
-  /**
-   * The application's contract, when it runs by one: what its link says,
-   * its own keys, and how it stands against its contract in Cauthy.
-   */
-  pact?: CauthyPact
   /** What the browser may be told of a session. */
   toPublic(session: Session): Promise<PublicSession>
   /** Paths of this application that start a sign-in, a sign-out, or open the account page. */
   urls: { signIn(returnTo?: string): string; signOut(): string; account(returnTo?: string): string; session: string }
   options: Readonly<Required<Pick<CauthyOptions, 'issuer' | 'clientId' | 'basePath' | 'afterSignIn' | 'afterSignOut' | 'cookieName'>>>
-}
-
-/** A contracted application's view of its contract (`auth.pact`). */
-export interface CauthyPact {
-  /** What its link in the graph says. */
-  contract: ResolvedContract
-  /** Its own keys: the one that signs, the ones published, rotating them. */
-  keys: PactKeys
-  /**
-   * The response for its jwks_url: the published keys. `handler` serves it
-   * at that path too, when the route reaches it.
-   */
-  jwks(): Promise<Response>
-  /** How it stands against its contract, as Cauthy checks it now. For a health endpoint. */
-  status(): Promise<PactStatus>
 }
 
 function env(name: string): string | undefined {
@@ -266,10 +242,22 @@ interface Keyed {
   previous?: CauthyKey
   /** While moving off the variables: old sessions are read with it, never written. */
   legacySecret?: string
-  /** While moving off PACT_ROOT_KEY: old sessions are read with it, and its RS256 keys stay published. */
-  legacyRoot?: string
-  /** PACT_ROOT_KEY_PREVIOUS, when a root rotation was still open: its sessions are read too. */
-  legacyRootPrevious?: string
+}
+
+/**
+ * Contracts are retired: what only they used refuses to start, so a deploy
+ * still configured for them never runs half-configured.
+ */
+function refuseContracts(given: CauthyOptions): void {
+  const options = given as Record<string, unknown>
+  const set = [
+    ...['contract', 'keys', 'rootKey', 'rootKeyPrevious'].filter(name => options[name] !== undefined).map(name => `the ${name} option`),
+    ...['PACT_ROOT_KEY', 'PACT_ROOT_KEY_PREVIOUS'].filter(name => (env(name) ?? '') !== ''),
+  ]
+  if (set.length === 0) return
+  throw new CauthyConfigError(`contracts are retired: run on CAUTHY_KEY alone, and remove ${set.join(', ')}. ` +
+    'An application without a key makes it on its card in Cauthy\'s dashboard; the same key keeps its people signed in. ' +
+    'Protect sign-in with the "Protect sign-in" switches on that card. Sessions sealed with PACT_ROOT_KEY are no longer read.')
 }
 
 function byKey(given: CauthyOptions): Keyed | undefined {
@@ -278,7 +266,7 @@ function byKey(given: CauthyOptions): Keyed | undefined {
   refuseBesideKey(typeof process !== 'undefined' ? process.env : undefined)
   for (const [name, value] of [['issuer', given.issuer], ['clientId', given.clientId], ['clientSecret', given.clientSecret],
     ['secret', given.secret], ['system', given.system], ['tenant', given.tenant], ['audience', given.audience], ['tenantId', given.tenantId],
-    ['systemKey', given.systemKey], ['rootKey', given.rootKey]] as const) {
+    ['systemKey', given.systemKey]] as const) {
     if (value !== undefined) throw new CauthyConfigError(`with CAUTHY_KEY, ${name} comes from CAUTHY_KEY: do not pass it`)
   }
   const key = parseKey(text)
@@ -295,16 +283,10 @@ function byKey(given: CauthyOptions): Keyed | undefined {
   if (previous && (previous.issuer !== key.issuer || previous.clientId !== key.clientId)) {
     throw new CauthyKeyError('key_previous_mismatch', 'CAUTHY_KEY_PREVIOUS names another Cauthy or client than CAUTHY_KEY')
   }
-  // The two secrets of before, accepted beside the key only to read what they sealed.
+  // The secret of before, accepted beside the key only to read what it sealed.
   const legacySecret = env('CAUTHY_SECRET') || undefined
-  const legacyRoot = env('PACT_ROOT_KEY') || undefined
-  const legacyRootPrevious = legacyRoot ? env('PACT_ROOT_KEY_PREVIOUS') || undefined : undefined
   if (legacySecret) deprecated('CAUTHY_SECRET beside CAUTHY_KEY', 'It is read only for sessions made before the move: remove it after the rotation window.')
-  if (legacyRoot) deprecated('PACT_ROOT_KEY beside CAUTHY_KEY', 'It is read only for sessions made before the move: remove it, the keys option and its table after the rotation window.')
-  if (given.keys && !(legacyRoot && given.contract)) {
-    throw new CauthyConfigError('with CAUTHY_KEY the application keeps no key store: remove keys (it is read only beside PACT_ROOT_KEY and a contract, while moving)')
-  }
-  return { key, previous, legacySecret, legacyRoot, legacyRootPrevious }
+  return { key, previous, legacySecret }
 }
 
 /** A request from an origin the application did not register in Cauthy (CAUTHY_KEY). */
@@ -312,36 +294,6 @@ class UnknownOriginError extends Error {
   constructor(readonly origin: string, readonly registered: string[]) {
     super(`${origin} is not one of the application's addresses in Cauthy (${registered.join(', ') || 'none'}): add it on the application's card, or set baseURL`)
   }
-}
-
-/**
- * A contract on top of CAUTHY_KEY (key/cauthy-key.md §8): the graph says who
- * the application is, the key proves it. The key must name the graph's Cauthy.
- */
-function contractOnKey(given: CauthyOptions, keyed: Keyed): ResolvedContract {
-  const contract = readContract(given.contract as NonNullable<CauthyOptions['contract']>)
-  if (contract.issuer !== keyed.key.issuer) {
-    throw new CauthyKeyError('key_contract_issuer', `the key names ${keyed.key.issuer}, and the contract's Cauthy is ${contract.issuer}: make the key in that Cauthy's dashboard`)
-  }
-  return contract
-}
-
-/** What a contracted application reads of its contract, its keys and its root key. */
-function byContract(given: CauthyOptions): { contract: ResolvedContract; root: string; previous?: string } {
-  // Fail closed: one source. Every variable of the standard mode is a second.
-  failClosed(typeof process !== 'undefined' ? process.env : undefined)
-  for (const [name, value] of [['clientId', given.clientId], ['clientSecret', given.clientSecret], ['secret', given.secret],
-    ['system', given.system], ['tenant', given.tenant], ['systemKey', given.systemKey]] as const) {
-    if (value !== undefined) throw new CauthyConfigError(`with a contract, ${name} comes from the contract: do not pass it`)
-  }
-  const contract = readContract(given.contract as NonNullable<CauthyOptions['contract']>)
-  const root = given.rootKey ?? env('PACT_ROOT_KEY') ?? ''
-  if (root === '') throw new CauthyConfigError('rootKey (PACT_ROOT_KEY) is required with a contract: 32 random bytes, e.g. openssl rand -base64 32')
-  if (contract.serviceClientId && !given.keys) {
-    throw new CauthyConfigError(`the link ${contract.link} gives ${contract.system} its own identity: pass keys, where its key is kept (@cauthyhq/node/keys)`)
-  }
-  deprecated('PACT_ROOT_KEY', 'Make the application\'s CAUTHY_KEY in Cauthy\'s dashboard (the application\'s card), then remove PACT_ROOT_KEY, the keys option and its table.')
-  return { contract, root, previous: given.rootKeyPrevious ?? env('PACT_ROOT_KEY_PREVIOUS') }
 }
 
 /** requestHeader: 'warn' says so once per process, whatever number of Cauthy instances run in it. */
@@ -353,60 +305,41 @@ function toldUnopened(): void {
   if (toldOfUnopened) return
   toldOfUnopened = true
   console.warn('@cauthyhq/node: a session cookie arrived that no key of this application opens; it was cleared and the person is signed out. ' +
-    'Moving to CAUTHY_KEY, keep the secret that sealed the old sessions (CAUTHY_SECRET, or PACT_ROOT_KEY and PACT_ROOT_KEY_PREVIOUS) beside it for the rotation window; ' +
+    'Moving to CAUTHY_KEY, keep the secret that sealed the old sessions (CAUTHY_SECRET) beside it for the rotation window; ' +
     'rotating the key, set CAUTHY_KEY_PREVIOUS.')
 }
 
 export function createCauthy(given: CauthyOptions = {}): Cauthy {
+  refuseContracts(given)
   // CAUTHY_KEY first: with it, nothing else names Cauthy or the client.
   const keyed = byKey(given)
-  const pacted = given.contract && !keyed ? byContract(given) : undefined
-  if (given.contract) {
-    deprecated('The contract option', 'Contracts are retired: remove the option and run on CAUTHY_KEY alone (an application without one makes it on its card in ' +
-      'Cauthy\'s dashboard). The same key keeps every session: people keep signing in through the client Cauthy names for it. ' +
-      'Protect sign-in with the "Protect sign-in" switches on the application\'s card.')
-  }
-  const contract = keyed && given.contract ? contractOnKey(given, keyed) : pacted?.contract
-  // The client people sign in with: the contract's (public) or the key's.
-  const issuer = withoutTrailingSlashes(keyed?.key.issuer ?? given.issuer ?? contract?.issuer ?? env('CAUTHY_ISSUER') ?? '')
-  const clientId = contract?.clientId ?? keyed?.key.clientId ?? given.clientId ?? env('CAUTHY_CLIENT_ID') ?? ''
-  const clientSecret = contract || keyed ? undefined : given.clientSecret ?? env('CAUTHY_CLIENT_SECRET')
-  const secret = contract || keyed ? '' : given.secret ?? env('CAUTHY_SECRET') ?? ''
-  // On CAUTHY_KEY without a contract the workspace and the system are Cauthy's answer (identity below).
-  const askSelf = keyed !== undefined && contract === undefined
-  const system = askSelf ? '' : contract?.system ?? given.system ?? env('CAUTHY_SYSTEM') ?? ''
-  const tenant = askSelf ? '' : contract?.tenant ?? given.tenant ?? env('CAUTHY_TENANT') ?? ''
+  const issuer = withoutTrailingSlashes(keyed?.key.issuer ?? given.issuer ?? env('CAUTHY_ISSUER') ?? '')
+  const clientId = keyed?.key.clientId ?? given.clientId ?? env('CAUTHY_CLIENT_ID') ?? ''
+  const clientSecret = keyed ? undefined : given.clientSecret ?? env('CAUTHY_CLIENT_SECRET')
+  const secret = keyed ? '' : given.secret ?? env('CAUTHY_SECRET') ?? ''
+  // On CAUTHY_KEY the workspace and the system are Cauthy's answer (identity below).
+  const system = keyed ? '' : given.system ?? env('CAUTHY_SYSTEM') ?? ''
+  const tenant = keyed ? '' : given.tenant ?? env('CAUTHY_TENANT') ?? ''
   if (!/^https?:\/\//.test(issuer)) throw new CauthyConfigError('issuer (CAUTHY_ISSUER) must be Cauthy\'s address, e.g. https://id.example.com')
   if (clientId === '') throw new CauthyConfigError('clientId (CAUTHY_CLIENT_ID) is required')
-  if (!contract && !keyed && secret.length < 32) throw new CauthyConfigError('secret (CAUTHY_SECRET) must be at least 32 characters: it encrypts the session cookie')
-  // The keys the cookies are sealed with. On CAUTHY_KEY, and by contract, one
-  // per job, derived from the key's secret or the root key; otherwise the one
-  // CAUTHY_SECRET stands for.
+  if (!keyed && secret.length < 32) throw new CauthyConfigError('secret (CAUTHY_SECRET) must be at least 32 characters: it encrypts the session cookie')
+  // The keys the cookies are sealed with. On CAUTHY_KEY, one per job, derived
+  // from the key's secret; otherwise the one CAUTHY_SECRET stands for.
   const fromKey: KeyDerived | undefined = keyed ? deriveFromKey(keyed.key, keyed.previous) : undefined
   let signingKid: string | undefined
   fromKey?.signer.then(s => { signingKid = s.kid }, () => undefined)
-  const derived = pacted ? deriveKeys(pacted.root, pacted.previous) : undefined
-  const single: Promise<KeyRing> | undefined = derived || fromKey ? undefined : keyOf(secret).then(k => [k])
-  // Beside the key while moving: what CAUTHY_SECRET or PACT_ROOT_KEY (and
-  // PACT_ROOT_KEY_PREVIOUS, a root rotation still open) sealed is still read,
+  // Beside the key while moving: what CAUTHY_SECRET sealed is still read,
   // after the key's own entries. Writing always uses entry 0, the key's.
-  const legacyRings = keyed?.legacyRoot ? deriveKeys(keyed.legacyRoot, keyed.legacyRootPrevious) : undefined
   const legacySingle = keyed?.legacySecret ? keyOf(keyed.legacySecret) : undefined
-  const withLegacy = async (own: Promise<KeyRing>, purpose: 'cookie' | 'flow'): Promise<KeyRing> => [
-    ...(await own),
-    ...(legacyRings ? await legacyRings[purpose] : []),
-    ...(legacySingle ? [await legacySingle] : []),
-  ]
-  const cookieKeys = (fromKey ? withLegacy(fromKey.cookie, 'cookie') : derived?.cookie ?? single) as Promise<KeyRing>
-  const flowKeys = (fromKey ? withLegacy(fromKey.flow, 'flow') : derived?.flow ?? single) as Promise<KeyRing>
+  const withLegacy = async (own: Promise<KeyRing>): Promise<KeyRing> => [...(await own), ...(legacySingle ? [await legacySingle] : [])]
+  const single: Promise<KeyRing> = fromKey ? Promise.resolve([]) : keyOf(secret).then(k => [k])
+  const cookieKeys = fromKey ? withLegacy(fromKey.cookie) : single
+  const flowKeys = fromKey ? withLegacy(fromKey.flow) : single
   // Applications on the variables of 1.1 are told once where to go.
-  if (!keyed && !pacted) {
+  if (!keyed) {
     deprecated('Configuring with CAUTHY_ISSUER, CAUTHY_CLIENT_ID, CAUTHY_CLIENT_SECRET, CAUTHY_SECRET and the other CAUTHY_* variables (or their options)',
       'Connect the application in Cauthy\'s dashboard and use the one variable CAUTHY_KEY.')
   }
-  // The RS256 keys of PACT_ROOT_KEY's store: by contract; on CAUTHY_KEY only while moving, published beside the key's.
-  const ownKeys = derived && given.keys ? pactKeys(given.keys, derived.seal)
-    : legacyRings && contract && given.keys ? pactKeys(given.keys, legacyRings.seal) : undefined
   const baseURL = given.baseURL ?? (keyed ? undefined : env('CAUTHY_BASE_URL'))
   if (baseURL !== undefined && baseURL !== '' && !/^https?:\/\/[^/]+\/*$/.test(baseURL)) {
     throw new CauthyConfigError('baseURL (CAUTHY_BASE_URL) must be the application\'s public origin, e.g. https://app.example.com')
@@ -441,23 +374,19 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // its public origin.
   const acceptInviteUrl = baseURL && pages.acceptInvite ? `${withoutTrailingSlashes(baseURL)}${pages.acceptInvite}` : undefined
   const ownSystem = createSystem({ issuer, clientId, clientSecret, key: given.systemKey, system: system || undefined, acceptInviteUrl, fetch: given.fetch, timeoutMs: systemTimeout,
-    ...(ownKeys ? { keys: ownKeys, keysClientId: contract?.serviceClientId } : {}),
-    // With a contract the key proves the link's service client; without, the key's own client.
-    ...(fromKey ? { signer: { clientId: contract ? contract.serviceClientId ?? keyed!.key.clientId : clientId, signer: fromKey.signer },
-      currentSystem: () => identity?.current()?.system ?? '' } : {}) })
+    // On CAUTHY_KEY the key proves the key's own client.
+    ...(fromKey ? { signer: { clientId, signer: fromKey.signer }, currentSystem: () => identity?.current()?.system ?? '' } : {}) })
 
   // Who the application is, on CAUTHY_KEY: asked of Cauthy now, awaited by
   // the first request (and by auth.ready()), revalidated every five minutes.
-  const selfOptions = () => ({ issuer, token: () => ownSystem.token(), fetch: deadline(given.fetch, requestTimeout), kid: () => signingKid,
-    log: (m: string) => console.error(`@cauthyhq/node: ${m}`) })
-  const identity: IdentityCache | undefined = askSelf
+  const identity: IdentityCache | undefined = keyed
     ? createIdentity({ issuer, token: () => ownSystem.token(), fetch: deadline(given.fetch, requestTimeout), kid: () => signingKid,
       log: m => console.error(`@cauthyhq/node: ${m}`) })
     : undefined
   identity?.ready().catch(() => { /* answered per request: 503 unavailable or misconfigured */ })
   const tenantNow = () => identity?.current()?.tenant.slug ?? tenant
   // The client people sign in with. On CAUTHY_KEY it is Cauthy's to say
-  // (sign_in_client_id): an application once connected by contract has its
+  // (sign_in_client_id): an application once connected by a contract has its
   // key on the link's service client, and its people sign in, and hold their
   // refresh tokens, through the link's sign-in client. Otherwise the key's.
   const signInClientNow = () => identity?.current()?.sign_in_client_id || clientId
@@ -492,13 +421,12 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   const attrs = (request: Request, maxAge?: number): CookieAttributes => ({ secure: safeOrigin(request).startsWith('https://'), maxAge })
 
   // How the application proves itself at the token and revoke endpoints: on
-  // CAUTHY_KEY a fresh Ed25519 assertion per call, never a secret.
-  // With a contract people sign in through the link's public client: nothing
-  // to prove there. The same on CAUTHY_KEY when Cauthy names a sign-in client
-  // other than the key's: the key proves the key's client only, and the code
-  // exchange carries the system's proof (passedOn) as by contract.
+  // CAUTHY_KEY a fresh Ed25519 assertion per call, never a secret. When
+  // Cauthy names a sign-in client other than the key's, that one is public:
+  // the key proves the key's client only, and the code exchange carries the
+  // system's proof (passedOn).
   async function clientAuth(form: URLSearchParams): Promise<URLSearchParams> {
-    if (fromKey && !contract && form.get('client_id') === clientId) {
+    if (fromKey && form.get('client_id') === clientId) {
       const s = await fromKey.signer
       form.set('client_assertion_type', ASSERTION_TYPE)
       form.set('client_assertion', await s.assertion(clientId, `${issuer}/v1/oauth/token`))
@@ -510,9 +438,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   // ── Talking to Cauthy ────────────────────────────────────────────────────
 
-  // `proof`: the system's own headers (passedOn), sent on a code exchange — a
-  // contract may ask for them (require_system_proof), so a copied client id
-  // is no use on its own.
+  // `proof`: the system's own headers (passedOn), sent on a code exchange —
+  // the application's "Protect sign-in" switch may ask for them, so a copied
+  // client id is no use on its own.
   async function token(form: Record<string, string>, proof: Record<string, string> = {}): Promise<{ ok: true; body: any } | { ok: false; ended: boolean; code?: string }> {
     try {
       const body = await clientAuth(new URLSearchParams({ client_id: await signInClient(), ...form }))
@@ -570,23 +498,11 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     }
   }
 
-  /**
-   * A link that requires a verified address lets nobody in on a token whose
-   * person has not confirmed it, whatever Cauthy issued. The token itself
-   * does not say (verification/rules.md), so this reads the user it came with.
-   */
-  const unverified = (u: SessionUser) => contract?.requireVerifiedEmail === true && !u.emailVerified
-
   /** What Cauthy's answer to a token request becomes in the cookie. */
   async function stored(body: any, was?: Stored): Promise<Stored | null> {
     if (typeof body?.access_token !== 'string' || typeof body?.refresh_token !== 'string') return null
     const who = await userinfo(body.access_token)
     if (who === null || who.u.id === '') return null
-    if (unverified(who.u)) {
-      // Cauthy just issued these tokens: the session they would have started never begins.
-      await revoke(body.refresh_token)
-      throw new CauthyApiError(403, 'email_not_confirmed', 'Confirm your email address first.')
-    }
     const lifetime = typeof body.expires_in === 'number' && body.expires_in > 0 ? body.expires_in : 300
     return { at: body.access_token, rt: body.refresh_token, exp: Math.floor(Date.now() / 1000) + lifetime, ...who, ...kindOf(body, was) }
   }
@@ -598,7 +514,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // ── The cookie ───────────────────────────────────────────────────────────
 
   // `stale`: opened by a key that only reads (CAUTHY_KEY_PREVIOUS, or the
-  // CAUTHY_SECRET / PACT_ROOT_KEY of before the move), so it is sealed again
+  // CAUTHY_SECRET of before the move), so it is sealed again
   // with the current key on the first answer that can carry a cookie.
   async function read(request: Request): Promise<{ had: Map<string, string>; value: Stored | null; present: boolean; stale: boolean }> {
     const had = readCookies(request.headers.get('cookie'))
@@ -628,13 +544,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       running = (async (): Promise<Stored | 'ended' | 'unreachable'> => {
         const res = await token({ grant_type: 'refresh_token', refresh_token: rt })
         if (!res.ok) return res.ended ? 'ended' : 'unreachable'
-        let next: Stored | null
-        try {
-          next = await stored(res.body, was)
-        } catch (err) {
-          if (err instanceof CauthyApiError && err.code === 'email_not_confirmed') return 'ended'
-          throw err
-        }
+        const next = await stored(res.body, was)
         if (next !== null) return next
         // Renewed, but who it is could not be read just now. The new tokens
         // are kept all the same — the old refresh token is spent, and losing
@@ -664,8 +574,6 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       if (present) toldUnopened()
       return { session: null, status: 'unauthenticated', cookies: present ? clearParts(cookieName, attrs(request, 0), had) : [] }
     }
-    // A session made before the link required a verified address does not outlive the requirement.
-    if (unverified(value.u)) return { session: null, status: 'unauthenticated', cookies: clearParts(cookieName, attrs(request, 0), had) }
     // Sealed with a key that only reads: sealed again now with the current
     // one, so the session outlives the removal of the old secret.
     if (fresh(value)) return { session: toSession(value), status: 'authenticated', cookies: stale ? await write(request, value, had) : [] }
@@ -683,7 +591,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   async function getSession(request: Request, responseHeaders?: Headers): Promise<Session | null> {
     if (responseHeaders === undefined) {
       const { value } = await read(request)
-      return value !== null && fresh(value) && !unverified(value.u) ? toSession(value) : null
+      return value !== null && fresh(value) ? toSession(value) : null
     }
     const r = await resolve(request)
     for (const c of r.cookies) responseHeaders.append('set-cookie', c)
@@ -692,7 +600,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   async function status(request: Request): Promise<SessionStatus> {
     const { value } = await read(request)
-    if (value === null || unverified(value.u)) return 'unauthenticated'
+    if (value === null) return 'unauthenticated'
     return fresh(value) ? 'authenticated' : 'expired'
   }
 
@@ -879,16 +787,9 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       return redirect(`${page}${page.includes('?') ? '&' : '?'}auth_error=email_not_confirmed`,
         [writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
     }
-    // Cauthy refuses at the token endpoint when the client requires a confirmed address…
+    // Cauthy refuses at the token endpoint when the client requires a confirmed address.
     if (!res.ok && res.code === 'email_not_confirmed') return unconfirmed()
-    let s: Stored | null
-    try {
-      s = res.ok ? await stored(res.body) : null
-    } catch (err) {
-      // …and this side checks too, should an older Cauthy not.
-      if (!(err instanceof CauthyApiError && err.code === 'email_not_confirmed')) throw err
-      return unconfirmed()
-    }
+    const s = res.ok ? await stored(res.body) : null
     if (s === null) return failed(request, 'exchange_failed')
     return redirect(flow.returnTo, [...(await write(request, s, had)), writeCookie(flowCookie, '', attrs(request, 0)), writeCookie(againCookie, '', attrs(request, 0))])
   }
@@ -1056,7 +957,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
       return ip ? { ...proof, 'x-cauthy-client-ip': ip } : proof
     } catch {
       // Not a system, or Cauthy is not answering: ask again shortly. Not
-      // long: a contract may ask for the proof on every sign-in.
+      // long: Cauthy may ask for the proof on every sign-in.
       noProofUntil = Date.now() + 30_000
       return {}
     }
@@ -1936,26 +1837,20 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     return null
   }
 
-  /** Every answer as protocol version 1 sends it (protocol.ts); the published keys keep their cache. */
+  /** Every answer as protocol version 1 sends it (protocol.ts). */
   async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const inside = url.pathname === basePath || url.pathname.startsWith(`${basePath}/`)
     const route = inside ? withoutTrailingSlashes(url.pathname.slice(basePath.length)) || '/' : null
-    const published = pact !== undefined && url.pathname === contract?.jwksPath && (request.method === 'GET' || request.method === 'HEAD')
     if (identity && route !== null) {
       const unready = await identityGate()
       if (unready) return finish(unready, route)
     }
     try {
-      return finish(await serve(request), route, published)
+      return finish(await serve(request), route)
     } catch (err) {
       if (err instanceof UnknownOriginError) return finish(problem(400, 'unknown_origin', err.message), route)
-      // A sign-in that Cauthy completed for an address not yet confirmed, on a link that requires it.
-      if (!(err instanceof CauthyApiError && err.code === 'email_not_confirmed')) throw err
-      const wantsPage = request.method === 'GET' && (request.headers.get('sec-fetch-mode') ?? 'navigate') === 'navigate'
-      return finish(wantsPage
-        ? new Response('Sign-in refused (email_not_confirmed). Confirm your email address first.', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } })
-        : problem(403, 'email_not_confirmed', 'Confirm your email address first.'), route)
+      throw err
     }
   }
 
@@ -1988,7 +1883,6 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
 
   async function serve(request: Request): Promise<Response> {
     const url = new URL(request.url)
-    if (pact && url.pathname === contract?.jwksPath && (request.method === 'GET' || request.method === 'HEAD')) return pact.jwks()
     if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) return new Response('Not found', { status: 404 })
     const route = withoutTrailingSlashes(url.pathname.slice(basePath.length)) || '/'
     const get = request.method === 'GET' || request.method === 'HEAD'
@@ -2063,9 +1957,7 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   }
 
   async function protect(request: Request) {
-    const read1 = await read(request)
-    // A session of a person the link does not let in (address not confirmed) is none.
-    const value = read1.value !== null && unverified(read1.value.u) ? null : read1.value
+    const { value } = await read(request)
     if (value !== null && fresh(value)) return { session: toSession(value) }
     const url = new URL(request.url)
     const state = value === null ? 'none' : 'expired'
@@ -2084,87 +1976,35 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
   // The endpoint's public address: the application's origin when it was
   // given (a proxy may hide it from the request), with the request's path.
   const replay = given.webhookReplay ?? memoryReplayStore()
-  let lateSelf: IdentityCache | undefined
   const tokenVerifier: Cauthy['tokenVerifier'] = (o = {}) => {
     // On CAUTHY_KEY the audience and the workspace are Cauthy's answer: the
     // verifier is built once that answer is in.
-    if (keyed) {
-      if (contract && o.clientId !== undefined && o.clientId !== contract.clientId) {
-        throw new CauthyConfigError(`clientId is the contract's (${contract.clientId}): remove it from the call`)
-      }
+    if (identity) {
       let built: { from: Identity; verify: (from: string | Request | Headers) => Promise<TokenIdentity> } | undefined
       return async (from) => {
-        // With a contract the audience is still Cauthy's to say: asked once, when first needed.
-        const id = await (identity ?? (lateSelf ??= createIdentity(selfOptions()))).ready()
+        const id = await identity.ready()
         if (built?.from !== id) {
-          built = { from: id, verify: createTokenVerifier({ issuer, tenantId: contract?.tenantId ?? id.tenant.id, audience: id.audience, fetch: given.fetch,
-            ...(contract ? { clientId: contract.clientId } : {}), ...o }) }
+          built = { from: id, verify: createTokenVerifier({ issuer, tenantId: id.tenant.id, audience: id.audience, fetch: given.fetch, ...o }) }
         }
         return built.verify(from)
       }
     }
-    // By contract the link owns the client: a person's token issued through
-    // another is refused (wrong_client), and a call cannot name another.
-    if (contract && o.clientId !== undefined && o.clientId !== contract.clientId) {
-      throw new CauthyConfigError(`clientId is the contract's (${contract.clientId}): remove it from the call`)
-    }
     return createTokenVerifier({
       issuer,
-      tenantId: contract?.tenantId ?? given.tenantId,
+      tenantId: given.tenantId,
       audience: given.audience,
       fetch: given.fetch,
-      ...(contract ? { clientId: contract.clientId } : {}),
       ...o,
     })
   }
   const webhook: Cauthy['webhook'] = (request, o = {}) =>
     verifyWebhook(request, { issuer, url: o.url ?? `${originOf(request)}${new URL(request.url).pathname}`, jwks: o.jwks, now: o.now, replay })
 
-  // On CAUTHY_KEY the published key is the key's public half (and the
-  // previous key's during a rotation): no key store, nothing sealed.
-  async function keyJwks(): Promise<Response> {
-    const s = await fromKey!.signer
-    const keys: object[] = [{ ...s.publicJwk, kid: s.kid, alg: 'EdDSA', use: 'sig' }]
-    if (fromKey!.previousJwk) keys.push({ ...(await fromKey!.previousJwk), alg: 'EdDSA', use: 'sig' })
-    if (ownKeys) keys.push(...(await ownKeys.published()).keys)
-    return new Response(JSON.stringify({ keys }), {
-      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': `public, max-age=${JWKS_MAX_AGE_S}` },
-    })
-  }
-  const noStore = (): never => {
-    throw new CauthyConfigError('on CAUTHY_KEY the application keeps no key of its own: make a new key on the application\'s card in Cauthy\'s dashboard')
-  }
-  const keyOnly: PactKeys = {
-    current: async () => noStore(),
-    published: async () => ({ keys: [] }),
-    rotate: async () => noStore(),
-    reseal: async () => 0,
-  }
-  const pact: CauthyPact | undefined = contract && fromKey ? {
-    contract,
-    keys: ownKeys ?? keyOnly,
-    jwks: keyJwks,
-    status: () => ownSystem.request<PactStatus>('GET', `/v1/pact/status?system=${encodeURIComponent(contract.system)}`),
-  } : contract && ownKeys ? {
-    contract,
-    keys: ownKeys,
-    async jwks() {
-      // Cauthy reads it when it meets a key it does not know, and at most
-      // hourly otherwise. A new key signs only after it has been published
-      // longer than this cache lasts (SIGN_AFTER_MS): caching never hides it.
-      return new Response(JSON.stringify(await ownKeys.published()), {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': `public, max-age=${JWKS_MAX_AGE_S}` },
-      })
-    },
-    status: () => ownSystem.request<PactStatus>('GET', `/v1/pact/status?system=${encodeURIComponent(contract.system)}`),
-  } : undefined
-
   // What the application is, as configured, for the modes that do not ask Cauthy.
   const configured = (): Identity => ({
-    issuer, audience: given.audience ?? env('CAUTHY_AUDIENCE') ?? '', tenant: { id: contract?.tenantId ?? given.tenantId ?? env('CAUTHY_TENANT_ID') ?? '', slug: tenant },
+    issuer, audience: given.audience ?? env('CAUTHY_AUDIENCE') ?? '', tenant: { id: given.tenantId ?? env('CAUTHY_TENANT_ID') ?? '', slug: tenant },
     system, client_id: clientId, sign_in_client_id: clientId, app_urls: baseURL ? [withoutTrailingSlashes(baseURL)] : [], callback_path: `${basePath}/callback`,
     key: null,
-    contract: contract ? { link: contract.link, system_proof: contract.systemProof, require_verified_email: contract.requireVerifiedEmail } : null,
   })
 
   return {
@@ -2187,7 +2027,6 @@ export function createCauthy(given: CauthyOptions = {}): Cauthy {
     check,
     toPublic,
     urls,
-    ...(pact ? { pact } : {}),
     options: { issuer, clientId, basePath, afterSignIn, afterSignOut, cookieName },
   }
 }

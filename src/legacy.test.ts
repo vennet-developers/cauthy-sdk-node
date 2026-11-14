@@ -1,19 +1,15 @@
 // Moving to CAUTHY_KEY: rotation with CAUTHY_KEY_PREVIOUS, old sessions read
-// while an application moves off CAUTHY_SECRET or PACT_ROOT_KEY, and the one
+// while an application moves off CAUTHY_SECRET, and the one
 // warning each old way of configuring gives. Each test loads the modules
 // afresh: a deprecation is said once per process, and here once per test.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseKey } from './cauthykey'
 import { deriveFromKey } from './keyderive'
-import { deriveKeys } from './rootkey'
 import { keyOf, seal, unsealAny } from './seal'
 import { Browser, FakeCauthy } from './testing'
 
-const ROOT = 'a-root-key-of-thirty-two-random-bytes-0123'
 const SECRET = 'a-cauthy-secret-of-thirty-two-characters-or-more'
 const TENANT = '6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b'
-const LINK = 'acme-crm-signs-in-with-cauthy'
-const SERVICE = `pact.${LINK}.service`
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -37,22 +33,6 @@ async function cookieWith(key: Uint8Array): Promise<string> {
 }
 
 const asBrowser = (cookie: string) => new Request('http://localhost:3000/', { headers: { cookie } })
-
-function graph() {
-  return {
-    version: 1,
-    nodes: [
-      { id: 'cauthy', type: 'system', url: 'https://id.test', tenants: [{ id: TENANT, slug: 'acme' }] },
-      { id: 'acme-crm', type: 'system', url: 'https://app.test', jwks_url: 'https://app.test/.well-known/pact-jwks.json' },
-    ],
-    edges: [{
-      from: 'acme-crm', relation: 'links', to: 'cauthy', link: LINK,
-      identity: { issuer: 'cauthy', tenant: TENANT, subject: 'b7c8d9e0-1f2a-4b3c-8d4e-5f6a7b8c9d0e' },
-      sign_in: { client_id: `pact.${LINK}`, redirect_uris: ['https://app.test/api/auth/callback'] },
-      service: { client_id: SERVICE, system: 'acme-crm', jwks_url: 'https://app.test/.well-known/pact-jwks.json' },
-    }],
-  }
-}
 
 describe('moving to CAUTHY_KEY', () => {
   it('reads a session of the previous key during a rotation, and writes with the new one only', async () => {
@@ -99,24 +79,6 @@ describe('moving to CAUTHY_KEY', () => {
     // Never written with: a new cookie opens with the key alone.
     expect(await unsealAny(await cookieWith((await deriveFromKey(parseKey(process.env.CAUTHY_KEY!)).cookie)[0]).then(c => c.slice('cauthy_session.0='.length)),
       [await keyOf(SECRET)])).toBeNull()
-  })
-
-  it('reads a session sealed with PACT_ROOT_KEY beside the key and a contract, and keeps its RS256 keys published', async () => {
-    const { createCauthy, told } = await fresh()
-    const { memoryKeyStore } = await import('./keys')
-    const fake = new FakeCauthy()
-    vi.stubEnv('CAUTHY_KEY', await fake.issueKey(fake.issuer, { clientId: SERVICE }))
-    vi.stubEnv('PACT_ROOT_KEY', ROOT)
-    const auth = createCauthy({ contract: { graph: graph(), system: 'acme-crm' }, keys: memoryKeyStore(), fetch: fake.fetch })
-    const old = await cookieWith((await deriveKeys(ROOT).cookie)[0])
-    expect((await auth.getSession(new Request('https://app.test/', { headers: { cookie: old } })))?.user.id).toBe('u-old')
-    expect(told('PACT_ROOT_KEY beside CAUTHY_KEY')).toHaveLength(1)
-    const { keys } = await (await auth.handler(new Request('https://app.test/.well-known/pact-jwks.json'))).json()
-    expect(keys.map((k: { alg: string }) => k.alg)).toEqual(['EdDSA', 'RS256'])
-    // The system still proves itself with the key's Ed25519 half.
-    await auth.system.token()
-    const cc = fake.oauthRequests.find(r => r.form.grant_type === 'client_credentials')!
-    expect(JSON.parse(Buffer.from(cc.form.client_assertion.split('.')[0], 'base64url').toString()).alg).toBe('EdDSA')
   })
 
   it('warns once per process in variables mode, naming CAUTHY_KEY', async () => {

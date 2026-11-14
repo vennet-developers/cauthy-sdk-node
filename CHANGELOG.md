@@ -2,17 +2,23 @@
 
 ## 1.3.0
 
-Contracts are retired: an application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in.
+Contracts are retired, and contract mode is removed (not deprecated): an application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in. Protect sign-in with the **Protect sign-in** switches on the application's card in Cauthy's dashboard.
 
 ### Changed
 
-- **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`, read at startup and every 5 minutes). An application connected by contract has its key on the link's service client (`pact.<link>.service`) and its people, and their refresh tokens, on the link's sign-in client (`pact.<link>`): the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls now go as that client. It is a public client: the key's assertion proves the key's own client only, and the code exchange carries the system's proof (`X-Cauthy-System-Token`), exactly as contract mode sends. A renewal outside the handler waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
-- **The same key keeps every session**: a cookie sealed by 1.2.1 by contract on `CAUTHY_KEY` is read and renewed by 1.3 on the same key with the `contract` option removed. `CAUTHY_KEY_PREVIOUS` still names the key's client.
+- **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`, read at startup and every 5 minutes). An application once connected by contract has its key on the link's service client (`pact.<link>.service`) and its people, and their refresh tokens, on the link's sign-in client (`pact.<link>`): the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls now go as that client. It is a public client: the key's assertion (`private_key_jwt`) proves the key's own client only, and the code exchange uses PKCE and carries the system's proof (`X-Cauthy-System-Token`). A renewal outside the handler waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
+- **The same key keeps every session**: a cookie sealed by 1.2.1 by contract on `CAUTHY_KEY` is read and renewed by 1.3 on the same key, without the `contract` option. `CAUTHY_KEY_PREVIOUS` still names the key's client.
 - **`@cauthyhq/node/testing`**: `FakeCauthy.signInClients` (the key's client → the sign-in client `GET /v1/connect/self` names). The fake now binds a code to the client that asked for it and a refresh token to the client it was issued to, as Cauthy does.
 
-### Deprecated (removed in 2.0)
+### Removed
 
-- **The `contract` option.** It keeps working through 1.x, with one `DeprecationWarning` (`CAUTHY_DEPRECATED`) per process: remove it and keep `CAUTHY_KEY`; protect sign-in with the "Protect sign-in" switches on the application's card in Cauthy's dashboard.
+- **Contract mode**: the `contract` option, `auth.pact` (its JWKS route at the contract's `jwks_url` path, `keys` and `status()`), and the SDK-side `require_verified_email` check of a link (Cauthy enforces the client's switch at the token endpoint).
+- **The 1.1 way of contracts**: `PACT_ROOT_KEY`, `PACT_ROOT_KEY_PREVIOUS`, the `keys` store and the `rootKey` / `rootKeyPrevious` options, including the read-only readers of 1.2 beside `CAUTHY_KEY`. Sessions sealed with `PACT_ROOT_KEY` and not read during the 1.2 rotation window are no longer read. `CAUTHY_SECRET` beside `CAUTHY_KEY` is still read-only for the window.
+- **Exports**: `readContract`, `failClosed`, `STANDARD_VARIABLES` and the types `ContractOptions`, `ResolvedContract`, `PactItem`, `PactStatus`, `CauthyPact`, `KeyStore`, `PactKeys`, `StoredKey`; the whole `@cauthyhq/node/keys` entry (`memoryKeyStore`, `postgresKeyStore`, `fileKeyStore`, `pactKeysTableSql`, `Query`); `Identity.contract`, `FakeCauthy.contract` and the `CauthyKeyReason` `key_contract_issuer`.
+
+### Refused at startup
+
+A `CauthyConfigError` ("contracts are retired: run on CAUTHY_KEY alone, and remove …"), on `CAUTHY_KEY` and on the variables alike, naming everything to remove: the `contract`, `keys`, `rootKey` or `rootKeyPrevious` option, or `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` set in the environment. A deploy still configured for contracts never runs half-configured.
 
 ## 1.2.1
 

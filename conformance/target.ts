@@ -62,7 +62,7 @@ async function start() {
   } else {
     const key = await cauthy.issueKey(`http://127.0.0.1:${cauthyPort}`)
     writeFileSync(keyFile, key, { mode: 0o600 })
-    for (const name of [...KEY_REPLACES, 'CAUTHY_SECRET', 'PACT_ROOT_KEY']) delete process.env[name]
+    for (const name of [...KEY_REPLACES, 'CAUTHY_SECRET', 'PACT_ROOT_KEY', 'PACT_ROOT_KEY_PREVIOUS']) delete process.env[name]
     process.env.CAUTHY_KEY = key
     // Nothing but the key: the workspace, the system and the address come from Cauthy.
     auth = createCauthy({ pages: { signIn: '/sign-in' }, fetch: cauthy.fetch })

@@ -1,6 +1,6 @@
 # @cauthyhq/node
 
-Cauthy for Node.js backends: sign-in, cookie sessions, organizations, Pact contract mode and token verification, served as the [auth-bff protocol](https://github.com/vennet-developers/cauthy-sdk-spec) version 1, level `strict`.
+Cauthy for Node.js backends: sign-in, cookie sessions, organizations and token verification, served as the [auth-bff protocol](https://github.com/vennet-developers/cauthy-sdk-spec) version 1, level `strict`.
 
 The browser never holds a token. Your server mounts one route, keeps the session in an encrypted HttpOnly cookie, and every security setting (sign-in methods, second factors, session length) is a switch in Cauthy's dashboard, not code.
 
@@ -113,8 +113,8 @@ CAUTHY_KEY**. Deploy with `CAUTHY_KEY` and keep `CAUTHY_SECRET` for the window
 (old sessions stay readable, and each is sealed again with the key the first
 time it is read; one warning says to remove it), remove the other variables,
 then **Remove the secret**. A session nobody used during the window is lost
-with the secret. The variables of 1.1 and `PACT_ROOT_KEY`
-still work in 1.x with one `DeprecationWarning` per process and leave in 2.0.
+with the secret. The variables of 1.1 still work in 1.x with one
+`DeprecationWarning` per process and leave in 2.0.
 
 ## Verifying a token
 
@@ -124,10 +124,9 @@ For an API that receives Cauthy access tokens from somewhere other than the brow
 import { auth } from './auth'
 
 // Where each value comes from:
-//   issuer   the instance's own (CAUTHY_KEY, or the contract; deprecated: CAUTHY_ISSUER)
-//   tenantId by contract, the link's tenant_id; on CAUTHY_KEY, Cauthy's answer; otherwise `tenantId` or CAUTHY_TENANT_ID (deprecated)
+//   issuer   the instance's own (CAUTHY_KEY; deprecated: CAUTHY_ISSUER)
+//   tenantId on CAUTHY_KEY, Cauthy's answer; otherwise `tenantId` or CAUTHY_TENANT_ID (deprecated)
 //   audience on CAUTHY_KEY, Cauthy's answer; otherwise `audience` or CAUTHY_AUDIENCE (deprecated): your Cauthy's JWT_AUDIENCE
-//   clientId by contract, the link's sign-in client: a person's token issued through another is refused (wrong_client)
 const verify = auth.tokenVerifier()          // throws CauthyConfigError now if one is missing
 const who = await verify(request)            // or: await auth.verifyToken(request)
 ```
@@ -151,7 +150,7 @@ const verify = createTokenVerifier({ issuer: 'https://id.example.com', audience:
 - **The audience and the workspace are required.** Without them a token issued for another application or workspace would be accepted.
 - A system's own token (`sys` claim, whatever its value) and a guest's token (`anon: true`) are refused where a person is expected. Pass `allowSystem` or `allowAnonymous` for an endpoint that takes them.
 - A client's own token (a `client_credentials` grant: `token_use: "client"`, whatever the value) is refused with `client_token` where a person is expected. A backend that serves machines too passes `allowClientTokens: true`; the identity then carries `clientId`, the client's public id (its `userId` is the client's internal id).
-- `authorizedParty` is the token's `azp`: the client a person's token was issued through, absent when none was named. With `clientId` (by contract, always the link's sign-in client), a token whose `azp` names another client is refused with `wrong_client`; a token with no `azp` passes.
+- `authorizedParty` is the token's `azp`: the client a person's token was issued through, absent when none was named. With `clientId`, a token whose `azp` names another client is refused with `wrong_client`; a token with no `azp` passes.
 - Clock tolerance is 30 seconds (`leeway`, 0 to 60). A token over 8192 bytes, with a repeated JSON name, a fractional date or a wrongly typed claim is refused.
 - Keys are fetched from `<issuer>/.well-known/jwks.json` with no redirect, within 5 seconds, at most 64 KiB, and kept for the answer's `max-age`.
 
@@ -162,7 +161,8 @@ const verify = createTokenVerifier({ issuer: 'https://id.example.com', audience:
 | cauthy-auth 0.42 | @cauthyhq/node 1.0 |
 | --- | --- |
 | `cauthy-auth` | `@cauthyhq/node` |
-| `cauthy-auth/express`, `/fastify`, `/hono`, `/next`, `/mcp`, `/keys`, `/theme` | `@cauthyhq/node/express`, … (same names) |
+| `cauthy-auth/express`, `/fastify`, `/hono`, `/next`, `/mcp`, `/theme` | `@cauthyhq/node/express`, … (same names) |
+| Contract mode (`contract`, `PACT_ROOT_KEY`, `cauthy-auth/keys`) | Removed in 1.3: run on `CAUTHY_KEY` (see [Contracts are retired](#contracts-are-retired)) |
 | `cauthy-auth/react`, `/styles.css` | `@cauthyhq/react`, `@cauthyhq/react/styles.css` |
 | `cauthy-auth/client` | `@cauthyhq/js` |
 | `cauthy-auth/vue`, `/svelte` | No 1.0 wrapper yet: keep `cauthy-auth` 0.43 in the browser (security fixes until 2027-02-06) |
@@ -178,30 +178,14 @@ Everything that behaves differently from 0.42:
 6. **http issuers are refused** except for `localhost`, `127.0.0.1`, `*.localhost` and `*.test`.
 7. **Calls to Cauthy have a deadline**: 2 seconds for `auth.system` and the sign-in proof, 5 seconds for the sign-in screens' calls and for the code, refresh and userinfo calls (`timeouts`, below). 0.42 waited forever. `pushTheme`, `pushPolicy`, `pullPolicy`, `pushCatalog`, `pullCatalog` and `connectSystem` take `timeoutMs`.
 8. **The Fastify plugin checks its mount on `onReady`** and fails startup when another route answers under the base path. It is skipped when `NODE_ENV=test`; `checkMount: false` turns it off.
-9. **Contract mode stops at startup** on an unknown `system_proof`, and on a workspace named by id whose `tenant_id` says another (see below).
-10. **A person whose address Cauthy says is not confirmed** (`email_not_confirmed`, when the link or client requires it) gets no session: the hosted callback redirects to your sign-in page with `auth_error=email_not_confirmed`, and the refresh token Cauthy had just issued is revoked. A session made before the requirement is treated as signed out.
-11. **Error messages start with `@cauthyhq/node:`** instead of `cauthy-auth:`. Classes and codes are the same.
+9. **A person whose address is not confirmed** gets no session when the application's **Protect sign-in** switch requires a verified email: Cauthy refuses the code exchange (`email_not_confirmed`), and the hosted callback redirects to your sign-in page with `auth_error=email_not_confirmed`.
+10. **Error messages start with `@cauthyhq/node:`** instead of `cauthy-auth:`. Classes and codes are the same.
 
 `/sign-in/anonymous`, `/me/upgrade` and `connectSystem` are deprecated: one `DeprecationWarning` per process, removed in 2.0.
 
-## Contract mode (deprecated)
+## Contracts are retired
 
-Contracts are retired. Remove the `contract` option and run on `CAUTHY_KEY` alone: the same key keeps every session. Cauthy names the client people sign in with (`sign_in_client_id`), so an application connected by contract keeps signing its people in through `pact.<link>` while its key proves `pact.<link>.service`. Protect sign-in with the **Protect sign-in** switches on the application's card in Cauthy's dashboard (system proof, verified email). The option keeps working through 1.x with one `DeprecationWarning` per process; what follows describes it for applications that have not moved yet.
-
-A contract is a layer on top of an application that runs on `CAUTHY_KEY`: the environment stays that one line, and the vendored graph adds the link (system proof, drift, the link's policies). No key store and no table:
-
-```ts
-import { createCauthy } from '@cauthyhq/node'
-import graph from './contracts/graph.json'
-
-export const auth = createCauthy({ contract: { graph, system: 'acme-crm' } })   // and CAUTHY_KEY in the environment
-```
-
-The key proves the link's service client (`pact.<link>.service`); people sign in through its public client (`pact.<link>`). The key must name the graph's Cauthy (`key_contract_issuer` otherwise). The application publishes the key's public half at the contract's `jwks_url` path (`/.well-known/pact-jwks.json` by default), and the previous key's too during a rotation. The Express, Hono and Fastify adapters route that path to the handler as they do `/api/auth`, so those need no route of their own for it. **Next.js and TanStack Start still need a route file** for it that calls `auth.handler(request)`.
-
-The 1.1 way (`PACT_ROOT_KEY` and `keys: postgresKeyStore(query)`) keeps working through 1.x with a deprecation warning. Moving: generate `CAUTHY_KEY` on the application's card, deploy it with `PACT_ROOT_KEY` (and `PACT_ROOT_KEY_PREVIOUS`, if a root rotation is open) and the `keys` option still beside it for the window (old sessions stay readable and are sealed again with the key the first time they are read, its RS256 keys stay published beside the new Ed25519 key), then remove `PACT_ROOT_KEY`, the option and the table. A session nobody used during the window is lost with the root key.
-
-It refuses to start when any variable `CAUTHY_KEY` replaces is also set, when the link names its workspace by slug and the graph has no `tenant_id` for it yet, when a workspace named by id is pinned to a different `tenant_id`, when `system_proof` is not `off`, `auto` or `required`, or when the link asks for a system proof without a `service` block. When the link sets `require_verified_email`, a person whose address is not confirmed gets no session. See [`contract/pact.md`](https://github.com/vennet-developers/cauthy-sdk-spec/blob/main/contract/pact.md).
+Contract mode is removed in 1.3: run on `CAUTHY_KEY` alone, and protect sign-in with the **Protect sign-in** switches on the application's card in Cauthy's dashboard. The `contract`, `keys`, `rootKey` and `rootKeyPrevious` options, and `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` in the environment, refuse to start with a `CauthyConfigError` naming them.
 
 ## Options added in 1.0
 
@@ -211,7 +195,7 @@ It refuses to start when any variable `CAUTHY_KEY` replaces is also set, when th
 | `timeouts.system` | `2000` | Deadline in milliseconds of the application's own calls to Cauthy (`auth.system`, the sign-in proof) |
 | `timeouts.request` | `5000` | Deadline in milliseconds of the sign-in screens' calls and of the code, refresh and userinfo calls |
 | `audience` | `CAUTHY_AUDIENCE` | The audience `auth.verifyToken` accepts |
-| `tenantId` | `CAUTHY_TENANT_ID` | The workspace id `auth.verifyToken` accepts (by contract, the link's) |
+| `tenantId` | `CAUTHY_TENANT_ID` | The workspace id `auth.verifyToken` accepts |
 
 ## Testing your application
 

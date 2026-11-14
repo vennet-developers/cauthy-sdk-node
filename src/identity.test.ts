@@ -4,7 +4,7 @@ import { createIdentity, type Identity } from './identity'
 const ID: Identity = {
   issuer: 'https://id.test', audience: 'https://id.test', tenant: { id: 't1', slug: 'acme' }, system: 'acme-crm',
   client_id: 'client_x', sign_in_client_id: 'client_x', app_urls: ['http://localhost:3000'],
-  callback_path: '/api/auth/callback', key: { kid: 'k1', retires_at: null }, contract: null,
+  callback_path: '/api/auth/callback', key: { kid: 'k1', retires_at: null },
 }
 
 function scripted(answers: Array<() => Response>) {

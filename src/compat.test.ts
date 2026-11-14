@@ -4,8 +4,12 @@ import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 // Every name cauthy-auth 0.42 exported from a server entry, @cauthyhq/node
-// exports from the same entry: moving is changing the import.
+// exports from the same entry: moving is changing the import. Except contract
+// mode, removed in 1.3 (contracts are retired): its names, and the whole
+// /keys entry, are gone on purpose.
 type Load = () => Promise<Record<string, unknown>>
+const RETIRED = new Set(['readContract', 'failClosed', 'STANDARD_VARIABLES', 'ContractOptions', 'ResolvedContract', 'PactItem', 'PactStatus',
+  'CauthyPact', 'KeyStore', 'PactKeys', 'StoredKey'])
 const entries: [string, Load, Load][] = [
   ['.', () => import('cauthy-auth'), () => import('./index')],
   ['/express', () => import('cauthy-auth/express'), () => import('./express')],
@@ -13,7 +17,6 @@ const entries: [string, Load, Load][] = [
   ['/hono', () => import('cauthy-auth/hono'), () => import('./hono')],
   ['/next', () => import('cauthy-auth/next'), () => import('./next')],
   ['/mcp', () => import('cauthy-auth/mcp'), () => import('./mcp')],
-  ['/keys', () => import('cauthy-auth/keys'), () => import('./keystores')],
   ['/theme', () => import('cauthy-auth/theme'), () => import('./theme')],
 ]
 
@@ -29,7 +32,7 @@ describe('what 1.0 adds to the root', () => {
 describe('what cauthy-auth 0.42 exported', () => {
   it.each(entries)('%s is all still here', async (_entry, theirs, ours) => {
     const [a, b] = await Promise.all([theirs(), ours()])
-    expect(Object.keys(a).filter((name) => !(name in b))).toEqual([])
+    expect(Object.keys(a).filter((name) => !(name in b) && !RETIRED.has(name))).toEqual([])
   })
 })
 
@@ -52,10 +55,10 @@ describe('what cauthy-auth 0.42 exported as a type', () => {
       .map((symbol) => symbol.name)
   }
 
-  it.each(['index', 'express', 'fastify', 'hono', 'next', 'mcp', 'keys', 'theme'])('%s: every type is in compat-types.ts', (entry) => {
+  it.each(['index', 'express', 'fastify', 'hono', 'next', 'mcp', 'theme'])('%s: every type is in compat-types.ts', (entry) => {
     const names = typeOnly(entry)
     const ns = `Entry_${entry === 'index' ? 'root' : entry}`
     expect(names.length > 0 || entry === 'express').toBe(true)
-    expect(names.filter((name) => !new RegExp(`${ns}\\.${name}\\b`).test(listed))).toEqual([])
+    expect(names.filter((name) => !RETIRED.has(name) && !new RegExp(`${ns}\\.${name}\\b`).test(listed))).toEqual([])
   })
 })
